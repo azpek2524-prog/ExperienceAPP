@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RPG Life Tracker</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans select-none antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        function App() {
+            // --- ESTADOS RPG ---
+            const [nivel, setNivel] = React.useState(1);
+            const [hp, setHp] = React.useState(80);   
+            const [xp, setXp] = React.useState(45);   
+            const [oro, setOro] = React.useState(25);
+            const [racha, setRacha] = React.useState(5); 
+
+            // --- ESTADÍSTICAS REALES PARA EL DASHBOARD ---
+            const [statsSemana, setStatsSemana] = React.useState({
+                xpGanada: 0,
+                tareasCompletadas: 0
+            });
+
+            // --- NAVEGACIÓN ---
+            const [tab, setTab] = React.useState('dashboard'); 
+            const [nuevoTexto, setNuevoTexto] = React.useState('');
+            const [notaExpandida, setNotaExpandida] = React.useState(null); 
+            const [tituloNota, setTituloNota] = React.useState('');
+            const [contenidoNota, setContenidoNota] = React.useState('');
+
+            // --- CALENDARIO Y GRÁFICA ---
+            const obtenerUltimos7Dias = () => {
+                const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+                const resultado = [];
+                for (let i = 6; i >= 0; i--) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - i);
+                    resultado.push({
+                        id: d.toDateString(), 
+                        numero: d.getDate(),
+                        nombre: diasSemana[d.getDay()],
+                        completado: i !== 0, 
+                        // El día de hoy (i===0) empieza en 5% para que la barra se vea vacía pero exista
+                        nivelActividad: i === 0 ? 5 : Math.floor(Math.random() * 40) + 30 
+                    });
+                }
+                return resultado;
+            };
+
+            const [historialDias, setHistorialDias] = React.useState(obtenerUltimos7Dias());
+
+            // --- CONEXIÓN DE DATOS: Actualiza la gráfica de HOY ---
+            const registrarActividadDashboard = (cantidadXp) => {
+                const hoyId = new Date().toDateString();
+                setHistorialDias(prev => prev.map(dia => {
+                    if (dia.id === hoyId) {
+                        // Aumenta la barra un porcentaje por cada acción (máximo 100%)
+                        const nuevoNivel = Math.min(100, dia.nivelActividad + (cantidadXp * 1.2));
+                        return { ...dia, nivelActividad: nuevoNivel };
+                    }
+                    return dia;
+                }));
+            };
+
+            // --- DATOS PRINCIPALES ---
+            // Agregamos 'vecesHoy: 0' para el nuevo estado visual de los hábitos
+            const [habitos, setHabitos] = React.useState([
+                { id: 1, texto: 'Lectura de Marco Aurelio', tipo: 'positivo', vecesHoy: 0 },
+                { id: 2, texto: 'Comida rápida', tipo: 'negativo', vecesHoy: 0 },
+                { id: 3, texto: 'Trote matutino', tipo: 'ambos', vecesHoy: 0 }
+            ]);
+
+            const [diarias, setDiarias] = React.useState([
+                { id: 1, texto: 'Avanzar en Ovelin IA', completado: false },
+                { id: 2, texto: 'Repasar apuntes de Derecho', completado: true }
+            ]);
+
+            const [pendientes, setPendientes] = React.useState([
+                { id: 1, texto: 'Diseñar logo final para Stly', completado: false },
+                { id: 2, texto: 'Mantenimiento Nissan Juke', completado: true },
+                { id: 3, texto: 'Ajustar nodos en n8n', completado: false }
+            ]);
+
+            const [notas, setNotas] = React.useState([
+                { id: 1, titulo: 'Estrategia Drop Stly', contenido: 'Idea para el primer drop de streetwear enfocado en la comunidad de Instagram.', fecha: '5 jul' }
+            ]);
+
+            // --- LÓGICA RPG ---
+            const ganarRecompensa = (cantidadXp) => {
+                let nuevaXp = xp + cantidadXp;
+                if (nuevaXp >= 100) {
+                    setNivel(nivel + 1);
+                    setXp(nuevaXp - 100);
+                    setHp(100); 
+                } else {
+                    setXp(nuevaXp);
+                }
+                setOro(oro + Math.floor(cantidadXp / 2));
+                
+                // Sumamos la estadística al Dashboard
+                setStatsSemana(prev => ({ ...prev, xpGanada: prev.xpGanada + cantidadXp }));
+                registrarActividadDashboard(cantidadXp);
+            };
+
+            const recibirDano = (cantidadHp) => {
+                let nuevaHp = hp - cantidadHp;
+                if (nuevaHp <= 0) {
+                    setHp(10); 
+                    if (nivel > 1) setNivel(nivel - 1); 
+                    setXp(0);
+                } else {
+                    setHp(nuevaHp);
+                }
+            };
+
+            // --- ACCIONES ESPECÍFICAS ---
+            const accionarHabito = (id, tipoAccion) => {
+                if (tipoAccion === 'positivo') {
+                    ganarRecompensa(10);
+                    setStatsSemana(prev => ({ ...prev, tareasCompletadas: prev.tareasCompletadas + 1 }));
+                    
+                    // Actualiza el hábito para que se ilumine como "Hecho Hoy"
+                    setHabitos(habitos.map(h => 
+                        h.id === id ? { ...h, vecesHoy: (h.vecesHoy || 0) + 1 } : h
+                    ));
+                } else {
+                    recibirDano(15);
+                }
+            };
+
+            const agregarItem = (e) => {
+                e.preventDefault();
+                if (tab === 'notas') {
+                    if (!tituloNota.trim() || !contenidoNota.trim()) return;
+                    const nuevaNota = { id: Date.now(), titulo: tituloNota, contenido: contenidoNota, fecha: new Date().toLocaleDateString('es-MX', {day: 'numeric', month: 'short'}) };
+                    setNotas([nuevaNota, ...notas]);
+                    setTituloNota(''); setContenidoNota('');
+                    ganarRecompensa(5);
+                    return;
+                }
+
+                if (!nuevoTexto.trim()) return;
+                const nuevoItem = { id: Date.now(), texto: nuevoTexto };
+                
+                if (tab === 'habitos') setHabitos([...habitos, { ...nuevoItem, tipo: 'ambos', vecesHoy: 0 }]);
+                if (tab === 'diarias') setDiarias([...diarias, { ...nuevoItem, completado: false }]);
+                if (tab === 'pendientes') setPendientes([...pendientes, { ...nuevoItem, completado: false }]);
+
+                setNuevoTexto('');
+            };
+
+            const eliminarItem = (id, lista) => {
+                if (lista === 'habitos') setHabitos(habitos.filter(item => item.id !== id));
+                if (lista === 'diarias') setDiarias(diarias.filter(item => item.id !== id));
+                if (lista === 'pendientes') setPendientes(pendientes.filter(item => item.id !== id));
+                if (lista === 'notas') setNotas(notas.filter(item => item.id !== id));
+            };
+
+            const completarDiaria = (id) => {
+                setDiarias(diarias.map(d => {
+                    if (d.id === id && !d.completado) {
+                        ganarRecompensa(15);
+                        setStatsSemana(prev => ({ ...prev, tareasCompletadas: prev.tareasCompletadas + 1 }));
+                        
+                        const todasListas = diarias.filter(item => item.id !== id).every(item => item.completado);
+                        if (todasListas) {
+                            const hoyId = new Date().toDateString();
+                            setHistorialDias(prev => prev.map(dia => dia.id === hoyId ? { ...dia, completado: true } : dia));
+                            setRacha(racha + 1);
+                        }
+                        return { ...d, completado: true };
+                    } else if (d.id === id && d.completado) {
+                        return { ...d, completado: false };
+                    }
+                    return d;
+                }));
+            };
+
+            const completarPendiente = (id) => {
+                setPendientes(pendientes.map(p => {
+                    if (p.id === id && !p.completado) {
+                        ganarRecompensa(20);
+                        setStatsSemana(prev => ({ ...prev, tareasCompletadas: prev.tareasCompletadas + 1 }));
+                        return { ...p, completado: true };
+                    }
+                    return p;
+                }));
+            };
+
+            return (
+                <div class="max-w-md mx-auto h-screen flex flex-col bg-slate-900 shadow-2xl relative overflow-hidden">
+                    
+                    {/* PANEL DE ESTADO Y MINICALENDARIO */}
+                    <header class="p-4 bg-slate-950 border-b border-slate-800 z-10 flex-shrink-0">
+                        <div class="flex items-center gap-4">
+                            <div class="relative flex-shrink-0">
+                                <div class="w-14 h-14 rounded-full bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center border-2 border-slate-700 shadow-inner">
+                                    <span class="text-xl font-bold text-white">M</span>
+                                </div>
+                                <div class="absolute -bottom-1 -right-1 bg-amber-500 text-slate-950 text-[10px] font-black px-1 py-0.5 rounded border border-slate-950 shadow">
+                                    LV {nivel}
+                                </div>
+                            </div>
+
+                            <div class="flex-1 space-y-1.5">
+                                <div>
+                                    <div class="flex justify-between text-[11px] font-bold text-red-400 mb-0.5 px-1">
+                                        <span>HP (Vida)</span>
+                                        <span>{hp} / 100</span>
+                                    </div>
+                                    <div class="w-full h-2.5 bg-slate-800 rounded-full border border-slate-700/50 p-0.5">
+                                        <div class="h-full bg-gradient-to-r from-red-600 to-rose-500 rounded-full transition-all duration-300" style={{ width: `${hp}%` }}></div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="flex justify-between text-[11px] font-bold text-purple-400 mb-0.5 px-1">
+                                        <span>XP (Exp)</span>
+                                        <span>{xp} / 100</span>
+                                    </div>
+                                    <div class="w-full h-2.5 bg-slate-800 rounded-full border border-slate-700/50 p-0.5">
+                                        <div class="h-full bg-gradient-to-r from-purple-600 to-indigo-500 rounded-full transition-all duration-300" style={{ width: `${xp}%` }}></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-3 pt-3 border-t border-slate-800/60 flex flex-col gap-2">
+                            <div class="flex justify-between items-center px-1 text-xs text-slate-400">
+                                <div class="flex items-center gap-1">
+                                    <span class="text-amber-400 text-sm">🪙</span> 
+                                    <span class="font-bold text-slate-200">{oro}</span>
+                                </div>
+                                <div class="flex items-center gap-1 font-medium text-orange-400">
+                                    <span>🔥 Racha: {racha} días</span>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-7 gap-1 pt-1">
+                                {historialDias.map((dia) => (
+                                    <div key={dia.id} class="flex flex-col items-center gap-0.5">
+                                        <span class="text-[9px] text-slate-500 font-bold uppercase">{dia.nombre}</span>
+                                        <div class={`w-7 h-7 rounded-lg flex flex-col items-center justify-center border text-[10px] font-black transition-all duration-500 ${dia.completado ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50 shadow-inner' : 'bg-slate-900 text-slate-400 border-slate-800'}`}>
+                                            <span>{dia.numero}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* NAVEGACIÓN */}
+                    <div class="flex bg-slate-950 border-b border-slate-800 flex-shrink-0 overflow-x-auto hide-scrollbar">
+                        <button onClick={() => setTab('dashboard')} class={`flex-1 min-w-[80px] py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${tab === 'dashboard' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500'}`}>Dash</button>
+                        <button onClick={() => setTab('habitos')} class={`flex-1 min-w-[80px] py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${tab === 'habitos' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500'}`}>Hábitos</button>
+                        <button onClick={() => setTab('diarias')} class={`flex-1 min-w-[80px] py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${tab === 'diarias' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500'}`}>Diarias</button>
+                        <button onClick={() => setTab('pendientes')} class={`flex-1 min-w-[80px] py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${tab === 'pendientes' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500'}`}>Tareas</button>
+                        <button onClick={() => setTab('notas')} class={`flex-1 min-w-[80px] py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${tab === 'notas' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500'}`}>Notas</button>
+                        <button onClick={() => setTab('archivo')} class={`flex-1 min-w-[80px] py-3 text-[11px] font-bold uppercase tracking-wider transition-colors ${tab === 'archivo' ? 'text-indigo-400 border-b-2 border-indigo-500' : 'text-slate-500'}`}>Archivo</button>
+                    </div>
+
+                    {/* CONTENEDOR DE PESTAÑAS */}
+                    <main class="flex-1 overflow-y-auto p-4 space-y-2.5 pb-40">
+                        
+                        {/* 1. DASHBOARD DINÁMICO */}
+                        {tab === 'dashboard' && (
+                            <div class="space-y-4 animate-fade-in">
+                                <h2 class="text-lg font-bold text-slate-100 mb-2">Análisis en Tiempo Real</h2>
+                                
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col justify-center items-center shadow-lg">
+                                        <span class="text-purple-400 text-3xl font-black">{statsSemana.xpGanada}</span>
+                                        <span class="text-slate-400 text-xs mt-1 font-medium uppercase tracking-wide">XP Obtenida</span>
+                                    </div>
+                                    <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 flex flex-col justify-center items-center shadow-lg">
+                                        <span class="text-emerald-400 text-3xl font-black">{statsSemana.tareasCompletadas}</span>
+                                        <span class="text-slate-400 text-xs mt-1 font-medium uppercase tracking-wide">Tareas Listas</span>
+                                    </div>
+                                </div>
+
+                                <div class="bg-slate-800 p-5 rounded-xl border border-slate-700 mt-4 shadow-lg">
+                                    <h3 class="text-sm font-bold text-slate-200 mb-4">Productividad por Día</h3>
+                                    <div class="flex items-end justify-between h-28 gap-2">
+                                        {historialDias.map(dia => (
+                                            <div key={dia.id} class="flex flex-col items-center justify-end flex-1 gap-2 h-full group">
+                                                <div 
+                                                    class={`w-full rounded-t-md transition-all duration-700 ease-out ${dia.nivelActividad > 5 ? 'bg-gradient-to-t from-indigo-600 to-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.3)]' : 'bg-slate-700'}`} 
+                                                    style={{height: `${dia.nivelActividad}%`}}
+                                                ></div>
+                                                <span class="text-[10px] text-slate-400 font-medium uppercase group-hover:text-indigo-300">{dia.nombre}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 2. NUEVO DISEÑO DE HÁBITOS (RECOMPENSA VISUAL) */}
+                        {tab === 'habitos' && habitos.map(h => {
+                            const hechoHoy = (h.vecesHoy || 0) > 0;
+                            return (
+                                <div key={h.id} class={`p-3 rounded-xl border flex flex-col gap-2 transition-all duration-300 ${hechoHoy ? 'bg-indigo-900/20 border-indigo-500/50 shadow-[0_0_12px_rgba(99,102,241,0.15)]' : 'bg-slate-800 border-slate-700 shadow-sm'}`}>
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex flex-col flex-1 mr-2">
+                                            <span class={`font-medium text-sm transition-colors ${hechoHoy ? 'text-white' : 'text-slate-200'}`}>{h.texto}</span>
+                                            {/* Etiqueta de confirmación */}
+                                            {hechoHoy && (
+                                                <span class="text-[10px] text-indigo-400 font-bold mt-1 flex items-center gap-1">
+                                                    ✨ Acción registrada hoy ({h.vecesHoy})
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div class="flex items-center gap-1.5 flex-shrink-0">
+                                            {(h.tipo === 'positivo' || h.tipo === 'ambos') && (
+                                                <button onClick={() => accionarHabito(h.id, 'positivo')} class={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-lg transition-all active:scale-90 ${hechoHoy ? 'bg-indigo-500 text-white shadow-md' : 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'}`}>+</button>
+                                            )}
+                                            {(h.tipo === 'negativo' || h.tipo === 'ambos') && (
+                                                <button onClick={() => accionarHabito(h.id, 'negativo')} class="w-9 h-9 bg-rose-500/20 text-rose-400 rounded-lg flex items-center justify-center font-bold text-lg hover:bg-rose-500/30 active:scale-90">-</button>
+                                            )}
+                                            <button onClick={() => eliminarItem(h.id, 'habitos')} class="w-7 h-9 text-slate-600 hover:text-red-400 text-xs font-bold ml-1">✕</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })}
+
+                        {/* 3. DIARIAS */}
+                        {tab === 'diarias' && diarias.map(d => (
+                            <div key={d.id} class={`p-3 rounded-xl border flex items-center justify-between transition-all ${d.completado ? 'bg-slate-800/40 border-slate-800 opacity-50' : 'bg-slate-800 border-slate-700'}`}>
+                                <div class="flex items-center gap-3 flex-1 truncate mr-2">
+                                    <button onClick={() => completarDiaria(d.id)} class={`w-5 h-5 rounded flex items-center justify-center border-2 flex-shrink-0 transition-colors ${d.completado ? 'bg-indigo-500 border-indigo-500' : 'border-slate-500'}`}>
+                                        {d.completado && <span class="text-white text-[9px]">✓</span>}
+                                    </button>
+                                    <span class={`text-slate-200 text-sm font-medium truncate ${d.completado ? 'line-through text-slate-400' : ''}`}>{d.texto}</span>
+                                </div>
+                                <button onClick={() => eliminarItem(d.id, 'diarias')} class="w-8 h-8 text-slate-600 hover:text-red-400 text-xs font-bold">✕</button>
+                            </div>
+                        ))}
+
+                        {/* 4. TAREAS */}
+                        {tab === 'pendientes' && pendientes.filter(p => !p.completado).map(p => (
+                            <div key={p.id} class="bg-slate-800 p-3 rounded-xl border border-slate-700 flex items-center justify-between shadow-sm group">
+                                <div class="flex items-center gap-3 flex-1 truncate mr-2">
+                                    <button onClick={() => completarPendiente(p.id)} class="w-5 h-5 rounded border-2 border-slate-500 hover:border-emerald-400 flex-shrink-0 transition-colors"></button>
+                                    <span class="text-slate-200 text-sm font-medium truncate">{p.texto}</span>
+                                </div>
+                                <button onClick={() => eliminarItem(p.id, 'pendientes')} class="w-8 h-8 text-slate-600 hover:text-red-400 text-xs font-bold">✕</button>
+                            </div>
+                        ))}
+
+                        {/* 5. ARCHIVO */}
+                        {tab === 'archivo' && pendientes.filter(p => p.completado).length === 0 ? (
+                            <div class="text-center py-10 text-slate-500 text-sm italic">Tus victorias aparecerán aquí.</div>
+                        ) : tab === 'archivo' && pendientes.filter(p => p.completado).map(p => (
+                            <div key={p.id} class="bg-slate-800/30 p-3 rounded-xl border border-slate-800 flex items-center justify-between opacity-70">
+                                <div class="flex items-center gap-3 flex-1 truncate mr-2">
+                                    <div class="w-5 h-5 rounded bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center flex-shrink-0">
+                                        <span class="text-emerald-400 text-[9px]">✓</span>
+                                    </div>
+                                    <span class="text-slate-400 text-sm font-medium truncate line-through">{p.texto}</span>
+                                </div>
+                                <button onClick={() => eliminarItem(p.id, 'pendientes')} class="w-8 h-8 text-slate-600 hover:text-red-400 text-xs font-bold">✕</button>
+                            </div>
+                        ))}
+
+                        {/* 6. NOTAS */}
+                        {tab === 'notas' && notas.map(n => (
+                            <div key={n.id} class="bg-slate-800 p-4 rounded-xl border border-slate-700 hover:border-indigo-500 transition-colors flex justify-between items-start gap-2">
+                                <div onClick={() => setNotaExpandida(n)} class="flex-1 min-w-0 cursor-pointer">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <h3 class="text-slate-100 font-bold text-sm truncate">{n.titulo}</h3>
+                                        <span class="text-[9px] text-slate-500 font-bold uppercase">{n.fecha}</span>
+                                    </div>
+                                    <p class="text-slate-400 text-xs line-clamp-2 leading-relaxed">{n.contenido}</p>
+                                </div>
+                                <button onClick={() => eliminarItem(n.id, 'notas')} class="text-slate-600 hover:text-red-400 text-xs font-bold p-1">✕</button>
+                            </div>
+                        ))}
+
+                    </main>
+
+                    {/* INPUT INFERIOR */}
+                    {(tab === 'habitos' || tab === 'diarias' || tab === 'pendientes' || tab === 'notas') && (
+                        <div class="absolute bottom-0 w-full bg-slate-950 border-t border-slate-800 p-4 z-20">
+                            {tab !== 'notas' ? (
+                                <form onSubmit={agregarItem} class="flex gap-2">
+                                    <input 
+                                        type="text" 
+                                        value={nuevoTexto}
+                                        onChange={(e) => setNuevoTexto(e.target.value)}
+                                        placeholder={`Nueva entrada en ${tab}...`} 
+                                        class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500"
+                                    />
+                                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 rounded-xl text-lg shadow-lg">+</button>
+                                </form>
+                            ) : (
+                                <form onSubmit={agregarItem} class="space-y-2">
+                                    <input 
+                                        type="text" 
+                                        placeholder="Título de la nota..." 
+                                        value={tituloNota}
+                                        onChange={(e) => setTituloNota(e.target.value)}
+                                        class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                                    />
+                                    <div class="flex gap-2">
+                                        <textarea 
+                                            placeholder="Escribe aquí..." 
+                                            value={contenidoNota}
+                                            onChange={(e) => setContenidoNota(e.target.value)}
+                                            rows="2"
+                                            class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 resize-none"
+                                        ></textarea>
+                                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 rounded-xl text-xs flex items-center justify-center shadow-lg">Guardar</button>
+                                    </div>
+                                </form>
+                            )}
+                        </div>
+                    )}
+
+                    {/* MODAL NOTAS */}
+                    {notaExpandida && (
+                        <div class="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end justify-center">
+                            <div class="bg-slate-900 w-full rounded-t-3xl p-6 border-t border-slate-800 max-h-[80vh] flex flex-col">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div>
+                                        <h2 class="text-lg font-bold text-white">{notaExpandida.titulo}</h2>
+                                        <span class="text-xs text-slate-500">{notaExpandida.fecha}</span>
+                                    </div>
+                                    <button onClick={() => setNotaExpandida(null)} class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-bold text-slate-400 hover:text-white">✕</button>
+                                </div>
+                                <div class="flex-1 overflow-y-auto text-slate-300 text-sm leading-relaxed whitespace-pre-wrap pb-8">
+                                    {notaExpandida.contenido}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
