@@ -34,14 +34,32 @@
     const { useState, useRef, useEffect } = React;
     const ACCENT = '#7c73f0';
 
+    // ---------- Fechas (clave por día YYYY-MM-DD) ----------
+    const pad = n => String(n).padStart(2, '0');
+    const dk = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    const parseKey = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
+    const todayKey = dk(new Date());
+    const NOMBRES_DIA = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const etiquetaFecha = (key) => {
+      if (key === todayKey) return 'Hoy';
+      const ayer = new Date(); ayer.setDate(ayer.getDate() - 1);
+      if (key === dk(ayer)) return 'Ayer';
+      const d = parseKey(key);
+      const s = d.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' });
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    };
+    const etiquetaCorta = (key) => {
+      const d = parseKey(key);
+      return d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+    };
+
     // ---------- Persistencia (localStorage) ----------
-    const LS_KEY = 'lifetrack_v2';
+    const LS_KEY = 'lifetrack_v3';
     const cargar = () => {
       try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; }
       catch (e) { return {}; }
     };
-    const guardado = cargar();
-    const hoyStr = () => new Date().toDateString();
+    const G = cargar();
 
     // ---------- Icons (SVG limpios) ----------
     const Ico = ({ d, size = 20, sw = 2, children }) => (
@@ -58,6 +76,8 @@
     const IconCamera = () => <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>;
     const IconTick = ({ c = '#fff' }) => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>;
     const IconEdit = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>;
+    const IconChevron = ({ dir = 'left' }) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: dir === 'right' ? 'rotate(180deg)' : 'none' }}><polyline points="15 18 9 12 15 6"></polyline></svg>;
+    const IconLock = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>;
 
     // ---------- Barra segmentada (HUD) ----------
     const SegBar = ({ pct, c1, c2 }) => {
@@ -84,106 +104,95 @@
     ];
 
     function App() {
-      const [nivel, setNivel] = useState(guardado.nivel ?? 1);
-      const [hp, setHp] = useState(guardado.hp ?? 80);
-      const [xp, setXp] = useState(guardado.xp ?? 45);
-      const [oro, setOro] = useState(guardado.oro ?? 25);
-      const [racha, setRacha] = useState(guardado.racha ?? 0);
-      const [stats, setStats] = useState(guardado.stats ?? { xpGanada: 0, tareasCompletadas: 0 });
+      // ---- Progresión del personaje (inicio coherente: todo bajo) ----
+      const [nivel, setNivel] = useState(G.nivel ?? 1);
+      const [hp, setHp] = useState(G.hp ?? 50);
+      const [xp, setXp] = useState(G.xp ?? 0);
+      const [oro, setOro] = useState(G.oro ?? 0);
+      const [fotoPerfil, setFotoPerfil] = useState(G.fotoPerfil ?? null);
 
+      // ---- Registros ligados a cada día ----
+      const [xpPorDia, setXpPorDia] = useState(G.xpPorDia ?? {});          // { dia: xp ganada }
+      const [tareasPorDia, setTareasPorDia] = useState(G.tareasPorDia ?? {}); // { dia: nº acciones }
+      const [diasCompletados, setDiasCompletados] = useState(G.diasCompletados ?? {}); // { dia: true }
+      const [habitLog, setHabitLog] = useState(G.habitLog ?? {});          // { habitId: { dia: conteo } }
+      const [diariaLog, setDiariaLog] = useState(G.diariaLog ?? {});       // { diariaId: { dia: true } }
+
+      // ---- Definiciones (se repiten cada día) ----
+      const [habitos, setHabitos] = useState(G.habitos ?? [
+        { id: 1, texto: 'Lectura de Marco Aurelio', tipo: 'positivo' },
+        { id: 2, texto: 'Comida rápida', tipo: 'negativo' },
+        { id: 3, texto: 'Trote matutino', tipo: 'ambos' },
+      ]);
+      const [diarias, setDiarias] = useState(G.diarias ?? [
+        { id: 1, texto: 'Avanzar en Ovelin IA' },
+        { id: 2, texto: 'Repasar apuntes de Derecho' },
+      ]);
+      // Tareas puntuales: fecha = día de creación, completadoFecha = día en que se terminó
+      const [pendientes, setPendientes] = useState(G.pendientes ?? []);
+      const [notas, setNotas] = useState(G.notas ?? []);
+
+      // ---- Estado de UI ----
       const [tab, setTab] = useState('dashboard');
+      const [selDia, setSelDia] = useState(todayKey);
       const [nuevoTexto, setNuevoTexto] = useState('');
       const [nuevoTipo, setNuevoTipo] = useState('ambos');
       const [tituloNota, setTituloNota] = useState('');
       const [contenidoNota, setContenidoNota] = useState('');
       const [editandoNota, setEditandoNota] = useState(null);
       const [notaExpandida, setNotaExpandida] = useState(null);
-
-      const [fotoPerfil, setFotoPerfil] = useState(guardado.fotoPerfil ?? null);
-      const fileRef = useRef(null);
       const [floaters, setFloaters] = useState([]);
+      const fileRef = useRef(null);
 
-      // Mapas reales por día (persistidos): actividad acumulada y días completados
-      const [actividadPorDia, setActividadPorDia] = useState(guardado.actividadPorDia ?? {});
-      const [diasCompletados, setDiasCompletados] = useState(guardado.diasCompletados ?? {});
-      const [ultimoDia, setUltimoDia] = useState(guardado.ultimoDia ?? hoyStr());
+      const esHoy = selDia === todayKey;
 
-      const [habitos, setHabitos] = useState(guardado.habitos ?? [
-        { id: 1, texto: 'Lectura de Marco Aurelio', tipo: 'positivo', vecesHoy: 0 },
-        { id: 2, texto: 'Comida rápida', tipo: 'negativo', vecesHoy: 0 },
-        { id: 3, texto: 'Trote matutino', tipo: 'ambos', vecesHoy: 0 },
-      ]);
-      const [diarias, setDiarias] = useState(guardado.diarias ?? [
-        { id: 1, texto: 'Avanzar en Ovelin IA', completado: false },
-        { id: 2, texto: 'Repasar apuntes de Derecho', completado: true },
-      ]);
-      const [pendientes, setPendientes] = useState(guardado.pendientes ?? [
-        { id: 1, texto: 'Diseñar logo final para Stly', completado: false },
-        { id: 2, texto: 'Mantenimiento Nissan Juke', completado: true },
-        { id: 3, texto: 'Ajustar nodos en n8n', completado: false },
-      ]);
-      const [notas, setNotas] = useState(guardado.notas ?? [
-        { id: 1, titulo: 'Estrategia Drop Stly', contenido: 'Idea para el primer drop de streetwear enfocado en la comunidad de Instagram.', fecha: '5 jul' },
-      ]);
-
-      // ---- Guardado automático en cada cambio ----
+      // ---- Guardado automático ----
       useEffect(() => {
-        const data = { nivel, hp, xp, oro, racha, stats, fotoPerfil, actividadPorDia, diasCompletados, ultimoDia, habitos, diarias, pendientes, notas };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, habitos, diarias, pendientes, notas };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-      }, [nivel, hp, xp, oro, racha, stats, fotoPerfil, actividadPorDia, diasCompletados, ultimoDia, habitos, diarias, pendientes, notas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, habitos, diarias, pendientes, notas]);
 
-      // ---- Reinicio diario automático ----
-      useEffect(() => {
-        const hoy = hoyStr();
-        if (ultimoDia !== hoy) {
-          // ¿Se completó el día anterior? Si no, se rompe la racha.
-          if (!diasCompletados[ultimoDia]) setRacha(0);
-          setDiarias(ds => ds.map(d => ({ ...d, completado: false })));
-          setHabitos(hs => hs.map(h => ({ ...h, vecesHoy: 0 })));
-          setUltimoDia(hoy);
-        }
-      // eslint-disable-next-line
-      }, []);
+      // ---- Racha derivada de los días completados ----
+      const calcRacha = () => {
+        let r = 0; const d = new Date();
+        if (!diasCompletados[dk(d)]) d.setDate(d.getDate() - 1);
+        while (diasCompletados[dk(d)]) { r++; d.setDate(d.getDate() - 1); }
+        return r;
+      };
+      const racha = calcRacha();
 
-      // ---- Últimos 7 días a partir de datos reales ----
-      const obtenerUltimos7Dias = () => {
-        const dias = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+      // ---- Últimos 7 días (tira del encabezado + gráfica) ----
+      const ultimos7 = () => {
         const r = [];
         for (let i = 6; i >= 0; i--) {
           const d = new Date(); d.setDate(d.getDate() - i);
-          const key = d.toDateString();
+          const key = dk(d);
           r.push({
-            id: key,
-            numero: d.getDate(),
-            nombre: dias[d.getDay()],
-            completado: !!diasCompletados[key],
-            isToday: i === 0,
-            nivelActividad: Math.min(100, actividadPorDia[key] || 0),
+            id: key, numero: d.getDate(), nombre: NOMBRES_DIA[d.getDay()],
+            completado: !!diasCompletados[key], isToday: i === 0, isSel: key === selDia,
+            actividad: Math.min(100, xpPorDia[key] || 0),
           });
         }
         return r;
       };
-      const historialDias = obtenerUltimos7Dias();
+      const semana = ultimos7();
 
-      // --- feedback flotante ---
+      // ---- feedback flotante ----
       const addFloater = (text, color) => {
         const id = Date.now() + Math.random();
         setFloaters(f => [...f, { id, text, color }]);
         setTimeout(() => setFloaters(f => f.filter(x => x.id !== id)), 1100);
       };
 
-      const registrarActividad = (cant) => {
-        const hoy = hoyStr();
-        setActividadPorDia(prev => ({ ...prev, [hoy]: Math.min(100, (prev[hoy] || 0) + cant * 1.2) }));
-      };
-
+      // ---- Recompensas / daño / curación ----
+      const curar = (cant) => setHp(h => Math.min(100, h + cant));
+      const contarTarea = () => setTareasPorDia(m => ({ ...m, [todayKey]: (m[todayKey] || 0) + 1 }));
       const ganarRecompensa = (cant) => {
         let nx = xp + cant;
         if (nx >= 100) { setNivel(n => n + 1); setXp(nx - 100); setHp(100); }
         else { setXp(nx); }
         setOro(o => o + Math.floor(cant / 2));
-        setStats(s => ({ ...s, xpGanada: s.xpGanada + cant }));
-        registrarActividad(cant);
+        setXpPorDia(m => ({ ...m, [todayKey]: (m[todayKey] || 0) + cant }));
         addFloater('+' + cant + ' XP', '#b6a6ff');
       };
       const recibirDano = (cant) => {
@@ -193,72 +202,73 @@
         addFloater('−' + cant + ' HP', '#fb7185');
       };
 
+      // ---- Acciones (sólo sobre el día de hoy) ----
+      const countHabito = (id) => (habitLog[id] && habitLog[id][selDia]) || 0;
       const accionarHabito = (id, tipo) => {
+        if (!esHoy) return;
         if (tipo === 'positivo') {
-          ganarRecompensa(10);
-          setStats(s => ({ ...s, tareasCompletadas: s.tareasCompletadas + 1 }));
-          setHabitos(hs => hs.map(h => h.id === id ? { ...h, vecesHoy: (h.vecesHoy || 0) + 1 } : h));
+          ganarRecompensa(10); curar(3); contarTarea();
+          setHabitLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
         } else { recibirDano(15); }
       };
 
+      const hechoDiaria = (id) => !!(diariaLog[id] && diariaLog[id][selDia]);
+      const completarDiaria = (id) => {
+        if (!esHoy) return;
+        const done = hechoDiaria(id);
+        if (!done) {
+          ganarRecompensa(15); curar(4); contarTarea();
+          const nl = { ...diariaLog, [id]: { ...(diariaLog[id] || {}), [todayKey]: true } };
+          setDiariaLog(nl);
+          if (diarias.length > 0 && diarias.every(d => nl[d.id] && nl[d.id][todayKey])) {
+            setDiasCompletados(m => ({ ...m, [todayKey]: true }));
+          }
+        } else {
+          const cur = { ...(diariaLog[id] || {}) }; delete cur[todayKey];
+          setDiariaLog({ ...diariaLog, [id]: cur });
+          setDiasCompletados(m => { const c = { ...m }; delete c[todayKey]; return c; });
+        }
+      };
+
+      const completarPendiente = (id) => {
+        if (!esHoy) return;
+        const p = pendientes.find(x => x.id === id);
+        if (!p || p.completado) return;
+        ganarRecompensa(20); curar(6); contarTarea();
+        setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: true, completadoFecha: todayKey } : x));
+      };
+
+      // ---- Alta de elementos (se registran en HOY) ----
       const agregarItem = (e) => {
         e.preventDefault();
+        if (!esHoy) return;
         if (tab === 'notas') {
           if (!tituloNota.trim() || !contenidoNota.trim()) return;
           if (editandoNota) {
             setNotas(notas.map(n => n.id === editandoNota ? { ...n, titulo: tituloNota, contenido: contenidoNota } : n));
             setEditandoNota(null);
           } else {
-            const n = { id: Date.now(), titulo: tituloNota, contenido: contenidoNota, fecha: new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) };
-            setNotas([n, ...notas]); ganarRecompensa(5);
+            setNotas([{ id: Date.now(), titulo: tituloNota, contenido: contenidoNota, fecha: todayKey }, ...notas]);
+            ganarRecompensa(5);
           }
           setTituloNota(''); setContenidoNota(''); return;
         }
         if (!nuevoTexto.trim()) return;
-        const item = { id: Date.now(), texto: nuevoTexto };
-        if (tab === 'habitos') setHabitos([...habitos, { ...item, tipo: nuevoTipo, vecesHoy: 0 }]);
-        if (tab === 'diarias') setDiarias([...diarias, { ...item, completado: false }]);
-        if (tab === 'pendientes') setPendientes([...pendientes, { ...item, completado: false }]);
+        const base = { id: Date.now(), texto: nuevoTexto };
+        if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
+        if (tab === 'diarias') setDiarias([...diarias, base]);
+        if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey }]);
         setNuevoTexto('');
       };
 
-      const editarNota = (n) => {
-        setEditandoNota(n.id); setTituloNota(n.titulo); setContenidoNota(n.contenido); setTab('notas');
-      };
+      const editarNota = (n) => { setEditandoNota(n.id); setTituloNota(n.titulo); setContenidoNota(n.contenido); setTab('notas'); };
 
       const eliminarItem = (id, lista) => {
+        if (!esHoy) return;
         if (lista === 'habitos') setHabitos(habitos.filter(i => i.id !== id));
         if (lista === 'diarias') setDiarias(diarias.filter(i => i.id !== id));
         if (lista === 'pendientes') setPendientes(pendientes.filter(i => i.id !== id));
         if (lista === 'notas') { setNotas(notas.filter(i => i.id !== id)); if (editandoNota === id) { setEditandoNota(null); setTituloNota(''); setContenidoNota(''); } }
-      };
-
-      const completarDiaria = (id) => {
-        const d = diarias.find(x => x.id === id);
-        if (!d) return;
-        if (!d.completado) {
-          ganarRecompensa(15);
-          setStats(s => ({ ...s, tareasCompletadas: s.tareasCompletadas + 1 }));
-          const nuevas = diarias.map(x => x.id === id ? { ...x, completado: true } : x);
-          setDiarias(nuevas);
-          if (nuevas.length > 0 && nuevas.every(x => x.completado)) {
-            const hoy = hoyStr();
-            if (!diasCompletados[hoy]) {
-              setDiasCompletados(prev => ({ ...prev, [hoy]: true }));
-              setRacha(r => r + 1);
-            }
-          }
-        } else {
-          setDiarias(diarias.map(x => x.id === id ? { ...x, completado: false } : x));
-        }
-      };
-
-      const completarPendiente = (id) => {
-        const p = pendientes.find(x => x.id === id);
-        if (!p || p.completado) return;
-        ganarRecompensa(20);
-        setStats(s => ({ ...s, tareasCompletadas: s.tareasCompletadas + 1 }));
-        setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: true } : x));
       };
 
       const onFotoChange = (e) => {
@@ -269,14 +279,28 @@
         r.readAsDataURL(f);
       };
 
+      // ---- Navegación entre días ----
+      const moverDia = (delta) => {
+        const d = parseKey(selDia); d.setDate(d.getDate() + delta);
+        const k = dk(d);
+        if (k > todayKey) return; // sin futuro
+        setSelDia(k);
+      };
+
+      // ---- Derivados de la vista ----
       const card = "bg-[#101019] border border-[rgba(129,120,241,0.16)] rounded-[10px]";
-      const showInput = ['habitos', 'diarias', 'pendientes', 'notas'].includes(tab);
+      const showInput = esHoy && ['habitos', 'diarias', 'pendientes', 'notas'].includes(tab);
       const labelMap = { habitos: 'hábitos', diarias: 'diarias', pendientes: 'tareas' };
       const TIPOS = [
         { id: 'positivo', label: '+ Positivo', c: '#a78bfa' },
         { id: 'negativo', label: '− Negativo', c: '#fb7185' },
         { id: 'ambos', label: '± Ambos', c: '#8b93a3' },
       ];
+      const notasDia = notas.filter(n => n.fecha === selDia);
+      const pendientesActivas = pendientes.filter(p => !p.completado);
+      const archivoDia = pendientes.filter(p => p.completado && p.completadoFecha === selDia);
+      const xpDia = xpPorDia[selDia] || 0;
+      const tareasDia = tareasPorDia[selDia] || 0;
 
       return (
         <div className="max-w-md mx-auto h-screen flex flex-col bg-[#08080c] text-[#e7e9ee] relative overflow-hidden select-none antialiased">
@@ -322,15 +346,16 @@
                 <div className="flex items-center gap-[5px] text-xs font-bold text-[#f59e42]"><span className="text-[13px]">🔥</span> {racha} días</div>
               </div>
               <div className="grid grid-cols-7 gap-[5px]">
-                {historialDias.map(d => (
-                  <div key={d.id} className="flex flex-col items-center gap-1">
-                    <span className="text-[8px] font-extrabold tracking-[0.04em] text-[#5b6270] uppercase">{d.nombre}</span>
-                    <div className="mono w-[30px] h-[30px] rounded-[6px] flex items-center justify-center text-[11px] font-bold transition-all duration-300" style={{
+                {semana.map(d => (
+                  <button key={d.id} onClick={() => setSelDia(d.id)} className="flex flex-col items-center gap-1 focus:outline-none">
+                    <span className="text-[8px] font-extrabold tracking-[0.04em] uppercase" style={{ color: d.isSel ? '#b6adf7' : '#5b6270' }}>{d.nombre}</span>
+                    <div className="mono w-[30px] h-[30px] rounded-[6px] flex items-center justify-center text-[11px] font-bold transition-all duration-200" style={{
                       background: d.completado ? 'rgba(16,185,129,0.16)' : (d.isToday ? 'rgba(124,115,240,0.14)' : 'rgba(255,255,255,0.03)'),
                       color: d.completado ? '#34d399' : (d.isToday ? '#b6adf7' : '#6b7280'),
-                      border: d.completado ? '1px solid rgba(16,185,129,0.5)' : (d.isToday ? '1px solid rgba(124,115,240,0.6)' : '1px solid rgba(255,255,255,0.06)')
+                      border: d.isSel ? '1.5px solid ' + ACCENT : (d.completado ? '1px solid rgba(16,185,129,0.5)' : (d.isToday ? '1px solid rgba(124,115,240,0.6)' : '1px solid rgba(255,255,255,0.06)')),
+                      boxShadow: d.isSel ? '0 0 10px rgba(124,115,240,0.4)' : 'none'
                     }}>{d.numero}</div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -349,20 +374,39 @@
             })}
           </nav>
 
+          {/* ===== SELECTOR DE DÍA ===== */}
+          <div className="flex items-center justify-between px-3 py-[9px] bg-[#0a0a10] border-b border-white/[0.06] flex-shrink-0">
+            <button onClick={() => moverDia(-1)} className="w-8 h-8 rounded-lg flex items-center justify-center text-[#8b93a3] bg-white/[0.04] active:scale-90 transition-all"><IconChevron dir="left" /></button>
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-bold" style={{ color: esHoy ? '#e7e9ee' : '#b6adf7' }}>{etiquetaFecha(selDia)}</span>
+              {!esHoy && (
+                <button onClick={() => setSelDia(todayKey)} className="text-[10px] font-bold px-[9px] py-[3px] rounded-full" style={{ background: 'rgba(124,115,240,0.16)', color: '#b6adf7' }}>Ir a hoy</button>
+              )}
+            </div>
+            <button onClick={() => moverDia(1)} disabled={esHoy} className="w-8 h-8 rounded-lg flex items-center justify-center transition-all active:scale-90" style={{ color: esHoy ? '#33343d' : '#8b93a3', background: esHoy ? 'transparent' : 'rgba(255,255,255,0.04)' }}><IconChevron dir="right" /></button>
+          </div>
+
+          {/* ===== AVISO SOLO LECTURA ===== */}
+          {!esHoy && (
+            <div className="flex items-center justify-center gap-[6px] py-[6px] bg-[#12101c] border-b border-white/[0.05] flex-shrink-0 text-[#8f86c9]">
+              <IconLock /><span className="text-[10px] font-bold tracking-[0.02em]">Viendo {etiquetaCorta(selDia)} · sólo lectura</span>
+            </div>
+          )}
+
           {/* ===== MAIN ===== */}
-          <main className={"flex-1 overflow-y-auto hide-scrollbar p-4 " + (showInput ? (tab === 'habitos' ? 'pb-40' : 'pb-28') : 'pb-6')}>
+          <main className={"flex-1 overflow-y-auto hide-scrollbar p-4 " + (showInput ? (tab === 'habitos' ? 'pb-40' : (tab === 'notas' ? 'pb-40' : 'pb-28')) : 'pb-6')}>
 
             {tab === 'dashboard' && (
               <div className="flex flex-col gap-[14px] anim-fade">
-                <h2 className="text-[17px] font-extrabold text-[#f2f3f6] m-0 tracking-[-0.01em]">Resumen del día</h2>
+                <h2 className="text-[17px] font-extrabold text-[#f2f3f6] m-0 tracking-[-0.01em]">Resumen · {etiquetaFecha(selDia)}</h2>
                 <div className="grid grid-cols-2 gap-3">
                   <div className={card + " p-4 flex flex-col gap-[10px]"}>
-                    <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#a855f7]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">XP obtenida</span></div>
-                    <span className="mono text-[32px] font-extrabold leading-none text-[#c4b5fd]">{stats.xpGanada}</span>
+                    <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#a855f7]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">XP del día</span></div>
+                    <span className="mono text-[32px] font-extrabold leading-none text-[#c4b5fd]">{xpDia}</span>
                   </div>
                   <div className={card + " p-4 flex flex-col gap-[10px]"}>
-                    <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#10b981]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Tareas listas</span></div>
-                    <span className="mono text-[32px] font-extrabold leading-none text-[#6ee7b7]">{stats.tareasCompletadas}</span>
+                    <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#10b981]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Acciones</span></div>
+                    <span className="mono text-[32px] font-extrabold leading-none text-[#6ee7b7]">{tareasDia}</span>
                   </div>
                 </div>
                 <div className={card + " p-[18px]"}>
@@ -371,17 +415,18 @@
                     <span className="text-[10px] text-[#5b6270] font-semibold">7 días</span>
                   </div>
                   <div className="flex items-end justify-between gap-[7px] h-[126px]">
-                    {historialDias.map(d => (
-                      <div key={d.id} className="flex flex-col items-center justify-end flex-1 h-full gap-2">
+                    {semana.map(d => (
+                      <button key={d.id} onClick={() => setSelDia(d.id)} className="flex flex-col items-center justify-end flex-1 h-full gap-2 focus:outline-none">
                         <div className="w-full flex-1 flex items-end">
                           <div className="w-full transition-all duration-700" style={{
-                            height: d.nivelActividad + '%', minHeight: 4, borderRadius: '3px 3px 0 0',
-                            background: d.nivelActividad > 5 ? 'linear-gradient(180deg,#a855f7,#7c73f0)' : 'rgba(255,255,255,0.07)',
-                            boxShadow: d.nivelActividad > 5 ? '0 0 12px rgba(124,115,240,0.3)' : 'none'
+                            height: d.actividad + '%', minHeight: 4, borderRadius: '3px 3px 0 0',
+                            background: d.actividad > 5 ? 'linear-gradient(180deg,#a855f7,#7c73f0)' : 'rgba(255,255,255,0.07)',
+                            boxShadow: d.actividad > 5 ? '0 0 12px rgba(124,115,240,0.3)' : 'none',
+                            outline: d.isSel ? '1.5px solid ' + ACCENT : 'none'
                           }}></div>
                         </div>
-                        <span className="text-[9px] font-bold text-[#5b6270] uppercase">{d.nombre}</span>
-                      </div>
+                        <span className="text-[9px] font-bold uppercase" style={{ color: d.isSel ? '#b6adf7' : '#5b6270' }}>{d.nombre}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -390,8 +435,10 @@
 
             {tab === 'habitos' && (
               <div className="flex flex-col gap-[10px] anim-fade">
+                {habitos.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">Añade tu primer hábito abajo.</div>}
                 {habitos.map(h => {
-                  const hecho = (h.vecesHoy || 0) > 0;
+                  const veces = countHabito(h.id);
+                  const hecho = veces > 0;
                   return (
                     <div key={h.id} className="p-[14px] rounded-[10px] transition-all" style={{
                       background: hecho ? '#161433' : '#101019',
@@ -401,16 +448,16 @@
                       <div className="flex items-center justify-between gap-[10px]">
                         <div className="flex flex-col gap-1 min-w-0 flex-1">
                           <span className="text-sm font-semibold leading-tight" style={{ color: hecho ? '#f3f2fb' : '#cdd0d8' }}>{h.texto}</span>
-                          {hecho && <span className="text-[10px] font-bold text-[#a99ff5]">✨ Registrado hoy · {h.vecesHoy}</span>}
+                          {hecho && <span className="text-[10px] font-bold text-[#a99ff5]">✨ {esHoy ? 'Registrado hoy' : 'Registrado'} · {veces}</span>}
                         </div>
                         <div className="flex items-center gap-[7px] flex-shrink-0">
                           {(h.tipo === 'positivo' || h.tipo === 'ambos') && (
-                            <button onClick={() => accionarHabito(h.id, 'positivo')} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-xl font-bold transition-all active:scale-90" style={{ background: hecho ? 'linear-gradient(135deg,#7c73f0,#a855f7)' : 'rgba(124,115,240,0.16)', color: hecho ? '#fff' : '#b6adf7', boxShadow: hecho ? '0 4px 12px rgba(124,115,240,0.35)' : 'none' }}>+</button>
+                            <button onClick={() => accionarHabito(h.id, 'positivo')} disabled={!esHoy} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-xl font-bold transition-all active:scale-90" style={{ background: hecho ? 'linear-gradient(135deg,#7c73f0,#a855f7)' : 'rgba(124,115,240,0.16)', color: hecho ? '#fff' : '#b6adf7', opacity: esHoy ? 1 : 0.45, boxShadow: hecho ? '0 4px 12px rgba(124,115,240,0.35)' : 'none' }}>+</button>
                           )}
                           {(h.tipo === 'negativo' || h.tipo === 'ambos') && (
-                            <button onClick={() => accionarHabito(h.id, 'negativo')} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-2xl font-bold bg-[rgba(244,63,94,0.14)] text-[#fb7185] transition-all active:scale-90">−</button>
+                            <button onClick={() => accionarHabito(h.id, 'negativo')} disabled={!esHoy} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-2xl font-bold bg-[rgba(244,63,94,0.14)] text-[#fb7185] transition-all active:scale-90" style={{ opacity: esHoy ? 1 : 0.45 }}>−</button>
                           )}
-                          <button onClick={() => eliminarItem(h.id, 'habitos')} className="w-[30px] h-[38px] text-[#4b5160] text-xs font-bold">✕</button>
+                          {esHoy && <button onClick={() => eliminarItem(h.id, 'habitos')} className="w-[30px] h-[38px] text-[#4b5160] text-xs font-bold">✕</button>}
                         </div>
                       </div>
                     </div>
@@ -421,23 +468,28 @@
 
             {tab === 'diarias' && (
               <div className="flex flex-col gap-[10px] anim-fade">
-                {diarias.map(d => (
-                  <div key={d.id} className={card + " p-[14px] flex items-center justify-between gap-[10px] transition-all"} style={{ opacity: d.completado ? 0.5 : 1 }}>
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <button onClick={() => completarDiaria(d.id)} className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center flex-shrink-0 transition-all active:scale-90" style={{ border: d.completado ? 'none' : '2px solid #565d6c', background: d.completado ? ACCENT : 'transparent' }}>
-                        {d.completado && <IconTick />}
-                      </button>
-                      <span className="text-sm font-medium truncate" style={{ color: d.completado ? '#6b7280' : '#d3d6dd', textDecoration: d.completado ? 'line-through' : 'none' }}>{d.texto}</span>
+                {diarias.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">Añade tu primera tarea diaria abajo.</div>}
+                {diarias.map(d => {
+                  const done = hechoDiaria(d.id);
+                  return (
+                    <div key={d.id} className={card + " p-[14px] flex items-center justify-between gap-[10px] transition-all"} style={{ opacity: done ? 0.5 : 1 }}>
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <button onClick={() => completarDiaria(d.id)} disabled={!esHoy} className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center flex-shrink-0 transition-all active:scale-90" style={{ border: done ? 'none' : '2px solid #565d6c', background: done ? ACCENT : 'transparent' }}>
+                          {done && <IconTick />}
+                        </button>
+                        <span className="text-sm font-medium truncate" style={{ color: done ? '#6b7280' : '#d3d6dd', textDecoration: done ? 'line-through' : 'none' }}>{d.texto}</span>
+                      </div>
+                      {esHoy && <button onClick={() => eliminarItem(d.id, 'diarias')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>}
                     </div>
-                    <button onClick={() => eliminarItem(d.id, 'diarias')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
             {tab === 'pendientes' && (
               <div className="flex flex-col gap-[10px] anim-fade">
-                {pendientes.filter(p => !p.completado).map(p => (
+                {!esHoy && <div className="text-center py-2 text-[#5b6270] text-[11px] italic">Tus tareas activas se gestionan en “Hoy”. Aquí abajo verás lo que completaste este día.</div>}
+                {esHoy && pendientesActivas.map(p => (
                   <div key={p.id} className={card + " p-[14px] flex items-center justify-between gap-[10px]"}>
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <button onClick={() => completarPendiente(p.id)} className="w-[22px] h-[22px] rounded-full border-2 border-[#565d6c] flex-shrink-0 transition-all active:scale-90 hover:border-emerald-400"></button>
@@ -446,24 +498,32 @@
                     <button onClick={() => eliminarItem(p.id, 'pendientes')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>
                   </div>
                 ))}
-                {pendientes.filter(p => !p.completado).length === 0 && (
+                {esHoy && pendientesActivas.length === 0 && (
                   <div className="text-center py-11 text-[#5b6270] text-sm">Todo bajo control. Sin tareas pendientes.</div>
                 )}
+                {!esHoy && archivoDia.length === 0 && (
+                  <div className="text-center py-11 text-[#5b6270] text-sm italic">No completaste tareas este día.</div>
+                )}
+                {!esHoy && archivoDia.map(p => (
+                  <div key={p.id} className="p-[14px] rounded-[10px] flex items-center gap-3 bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.72 }}>
+                    <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
+                    <span className="text-sm text-[#6b7280] line-through truncate">{p.texto}</span>
+                  </div>
+                ))}
               </div>
             )}
 
             {tab === 'archivo' && (
               <div className="flex flex-col gap-[10px] anim-fade">
-                {pendientes.filter(p => p.completado).length === 0 && (
-                  <div className="text-center py-11 text-[#5b6270] text-sm italic">Tus victorias aparecerán aquí.</div>
+                {archivoDia.length === 0 && (
+                  <div className="text-center py-11 text-[#5b6270] text-sm italic">{esHoy ? 'Tus victorias de hoy aparecerán aquí.' : 'Sin victorias registradas este día.'}</div>
                 )}
-                {pendientes.filter(p => p.completado).map(p => (
-                  <div key={p.id} className="p-[14px] rounded-[10px] flex items-center justify-between gap-[10px] bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.62 }}>
+                {archivoDia.map(p => (
+                  <div key={p.id} className="p-[14px] rounded-[10px] flex items-center justify-between gap-[10px] bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.72 }}>
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
                       <span className="text-sm text-[#6b7280] line-through truncate">{p.texto}</span>
                     </div>
-                    <button onClick={() => eliminarItem(p.id, 'pendientes')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>
                   </div>
                 ))}
               </div>
@@ -471,20 +531,23 @@
 
             {tab === 'notas' && (
               <div className="flex flex-col gap-[10px] anim-fade">
-                {notas.map(n => (
+                {notasDia.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">{esHoy ? 'Escribe tu primera nota del día abajo.' : 'Sin notas este día.'}</div>}
+                {notasDia.map(n => (
                   <div key={n.id} className={card + " p-[14px]"}>
                     <div className="flex justify-between items-start gap-[10px]">
                       <div onClick={() => setNotaExpandida(n)} className="min-w-0 flex-1 cursor-pointer">
                         <div className="flex items-center gap-2 mb-[5px]">
                           <h3 className="text-sm font-bold text-[#f2f3f6] m-0 truncate">{n.titulo}</h3>
-                          <span className="text-[9px] font-bold text-[#5b6270] uppercase flex-shrink-0">{n.fecha}</span>
+                          <span className="text-[9px] font-bold text-[#5b6270] uppercase flex-shrink-0">{etiquetaCorta(n.fecha)}</span>
                         </div>
                         <p className="text-xs text-[#8b93a3] leading-relaxed m-0" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.contenido}</p>
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <button onClick={() => editarNota(n)} className="text-[#6b7280] hover:text-[#b6adf7] p-1"><IconEdit /></button>
-                        <button onClick={() => eliminarItem(n.id, 'notas')} className="text-[#4b5160] text-xs font-bold p-1">✕</button>
-                      </div>
+                      {esHoy && (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button onClick={() => editarNota(n)} className="text-[#6b7280] hover:text-[#b6adf7] p-1"><IconEdit /></button>
+                          <button onClick={() => eliminarItem(n.id, 'notas')} className="text-[#4b5160] text-xs font-bold p-1">✕</button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -499,7 +562,7 @@
             ))}
           </div>
 
-          {/* ===== INPUT ===== */}
+          {/* ===== INPUT (sólo en HOY) ===== */}
           {showInput && (
             <div className="absolute left-0 right-0 bottom-0 bg-[rgba(10,10,15,0.94)] backdrop-blur-md border-t border-white/[0.07] p-[14px] z-[25]">
               {tab === 'habitos' && (
@@ -538,7 +601,7 @@
                 <div className="flex justify-between items-start mb-4 gap-3">
                   <div className="min-w-0">
                     <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0 mb-1">{notaExpandida.titulo}</h2>
-                    <span className="text-[11px] text-[#5b6270] font-semibold">{notaExpandida.fecha}</span>
+                    <span className="text-[11px] text-[#5b6270] font-semibold">{etiquetaCorta(notaExpandida.fecha)}</span>
                   </div>
                   <button onClick={() => setNotaExpandida(null)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
                 </div>
