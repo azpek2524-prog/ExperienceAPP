@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#050508">
+  <title>Life Track</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body { margin: 0; background: #050508; font-family: 'Inter', system-ui, sans-serif; }
+    .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: none; } }
+    @keyframes floatUp { 0% { opacity: 0; transform: translateY(8px) scale(.9); } 18% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-30px) scale(1); } }
+    .anim-fade { animation: fadeIn .4s ease; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/app-jsx" id="app-src">
+    const { useState, useRef, useEffect } = React;
+    const ACCENT = '#7c73f0';
+
+    // ---------- Persistencia (localStorage) ----------
+    const LS_KEY = 'lifetrack_v2';
+    const cargar = () => {
+      try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; }
+      catch (e) { return {}; }
+    };
+    const guardado = cargar();
+    const hoyStr = () => new Date().toDateString();
+
+    // ---------- Icons (SVG limpios) ----------
+    const Ico = ({ d, size = 20, sw = 2, children }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
+        {d ? <path d={d}></path> : children}
+      </svg>
+    );
+    const IconPanel = () => <Ico><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect></Ico>;
+    const IconZap = () => <Ico><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></Ico>;
+    const IconSun = () => <Ico><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></Ico>;
+    const IconCheck = () => <Ico><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></Ico>;
+    const IconNote = () => <Ico><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="14" y2="17"></line></Ico>;
+    const IconArchive = () => <Ico><rect x="3" y="4" width="18" height="4" rx="1"></rect><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"></path><line x1="10" y1="12" x2="14" y2="12"></line></Ico>;
+    const IconCamera = () => <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>;
+    const IconTick = ({ c = '#fff' }) => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>;
+    const IconEdit = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>;
+
+    // ---------- Barra segmentada (HUD) ----------
+    const SegBar = ({ pct, c1, c2 }) => {
+      const n = 12, on = Math.round(pct / 100 * n);
+      return (
+        <div className="flex gap-[3px]">
+          {Array.from({ length: n }).map((_, i) => (
+            <div key={i} className="flex-1 h-[9px] rounded-[2px] transition-all duration-300" style={{
+              background: i < on ? `linear-gradient(180deg,${c1},${c2})` : 'rgba(255,255,255,0.06)',
+              boxShadow: i < on ? `0 0 6px ${c1}66` : 'none'
+            }}></div>
+          ))}
+        </div>
+      );
+    };
+
+    const NAV = [
+      { id: 'dashboard', label: 'Panel', Icon: IconPanel },
+      { id: 'habitos', label: 'Hábitos', Icon: IconZap },
+      { id: 'diarias', label: 'Diarias', Icon: IconSun },
+      { id: 'pendientes', label: 'Tareas', Icon: IconCheck },
+      { id: 'notas', label: 'Notas', Icon: IconNote },
+      { id: 'archivo', label: 'Archivo', Icon: IconArchive },
+    ];
+
+    function App() {
+      const [nivel, setNivel] = useState(guardado.nivel ?? 1);
+      const [hp, setHp] = useState(guardado.hp ?? 80);
+      const [xp, setXp] = useState(guardado.xp ?? 45);
+      const [oro, setOro] = useState(guardado.oro ?? 25);
+      const [racha, setRacha] = useState(guardado.racha ?? 0);
+      const [stats, setStats] = useState(guardado.stats ?? { xpGanada: 0, tareasCompletadas: 0 });
+
+      const [tab, setTab] = useState('dashboard');
+      const [nuevoTexto, setNuevoTexto] = useState('');
+      const [nuevoTipo, setNuevoTipo] = useState('ambos');
+      const [tituloNota, setTituloNota] = useState('');
+      const [contenidoNota, setContenidoNota] = useState('');
+      const [editandoNota, setEditandoNota] = useState(null);
+      const [notaExpandida, setNotaExpandida] = useState(null);
+
+      const [fotoPerfil, setFotoPerfil] = useState(guardado.fotoPerfil ?? null);
+      const fileRef = useRef(null);
+      const [floaters, setFloaters] = useState([]);
+
+      // Mapas reales por día (persistidos): actividad acumulada y días completados
+      const [actividadPorDia, setActividadPorDia] = useState(guardado.actividadPorDia ?? {});
+      const [diasCompletados, setDiasCompletados] = useState(guardado.diasCompletados ?? {});
+      const [ultimoDia, setUltimoDia] = useState(guardado.ultimoDia ?? hoyStr());
+
+      const [habitos, setHabitos] = useState(guardado.habitos ?? [
+        { id: 1, texto: 'Lectura de Marco Aurelio', tipo: 'positivo', vecesHoy: 0 },
+        { id: 2, texto: 'Comida rápida', tipo: 'negativo', vecesHoy: 0 },
+        { id: 3, texto: 'Trote matutino', tipo: 'ambos', vecesHoy: 0 },
+      ]);
+      const [diarias, setDiarias] = useState(guardado.diarias ?? [
+        { id: 1, texto: 'Avanzar en Ovelin IA', completado: false },
+        { id: 2, texto: 'Repasar apuntes de Derecho', completado: true },
+      ]);
+      const [pendientes, setPendientes] = useState(guardado.pendientes ?? [
+        { id: 1, texto: 'Diseñar logo final para Stly', completado: false },
+        { id: 2, texto: 'Mantenimiento Nissan Juke', completado: true },
+        { id: 3, texto: 'Ajustar nodos en n8n', completado: false },
+      ]);
+      const [notas, setNotas] = useState(guardado.notas ?? [
+        { id: 1, titulo: 'Estrategia Drop Stly', contenido: 'Idea para el primer drop de streetwear enfocado en la comunidad de Instagram.', fecha: '5 jul' },
+      ]);
+
+      // ---- Guardado automático en cada cambio ----
+      useEffect(() => {
+        const data = { nivel, hp, xp, oro, racha, stats, fotoPerfil, actividadPorDia, diasCompletados, ultimoDia, habitos, diarias, pendientes, notas };
+        try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
+      }, [nivel, hp, xp, oro, racha, stats, fotoPerfil, actividadPorDia, diasCompletados, ultimoDia, habitos, diarias, pendientes, notas]);
+
+      // ---- Reinicio diario automático ----
+      useEffect(() => {
+        const hoy = hoyStr();
+        if (ultimoDia !== hoy) {
+          // ¿Se completó el día anterior? Si no, se rompe la racha.
+          if (!diasCompletados[ultimoDia]) setRacha(0);
+          setDiarias(ds => ds.map(d => ({ ...d, completado: false })));
+          setHabitos(hs => hs.map(h => ({ ...h, vecesHoy: 0 })));
+          setUltimoDia(hoy);
+        }
+      // eslint-disable-next-line
+      }, []);
+
+      // ---- Últimos 7 días a partir de datos reales ----
+      const obtenerUltimos7Dias = () => {
+        const dias = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        const r = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(); d.setDate(d.getDate() - i);
+          const key = d.toDateString();
+          r.push({
+            id: key,
+            numero: d.getDate(),
+            nombre: dias[d.getDay()],
+            completado: !!diasCompletados[key],
+            isToday: i === 0,
+            nivelActividad: Math.min(100, actividadPorDia[key] || 0),
+          });
+        }
+        return r;
+      };
+      const historialDias = obtenerUltimos7Dias();
+
+      // --- feedback flotante ---
+      const addFloater = (text, color) => {
+        const id = Date.now() + Math.random();
+        setFloaters(f => [...f, { id, text, color }]);
+        setTimeout(() => setFloaters(f => f.filter(x => x.id !== id)), 1100);
+      };
+
+      const registrarActividad = (cant) => {
+        const hoy = hoyStr();
+        setActividadPorDia(prev => ({ ...prev, [hoy]: Math.min(100, (prev[hoy] || 0) + cant * 1.2) }));
+      };
+
+      const ganarRecompensa = (cant) => {
+        let nx = xp + cant;
+        if (nx >= 100) { setNivel(n => n + 1); setXp(nx - 100); setHp(100); }
+        else { setXp(nx); }
+        setOro(o => o + Math.floor(cant / 2));
+        setStats(s => ({ ...s, xpGanada: s.xpGanada + cant }));
+        registrarActividad(cant);
+        addFloater('+' + cant + ' XP', '#b6a6ff');
+      };
+      const recibirDano = (cant) => {
+        let nh = hp - cant;
+        if (nh <= 0) { setHp(10); if (nivel > 1) setNivel(n => n - 1); setXp(0); }
+        else { setHp(nh); }
+        addFloater('−' + cant + ' HP', '#fb7185');
+      };
+
+      const accionarHabito = (id, tipo) => {
+        if (tipo === 'positivo') {
+          ganarRecompensa(10);
+          setStats(s => ({ ...s, tareasCompletadas: s.tareasCompletadas + 1 }));
+          setHabitos(hs => hs.map(h => h.id === id ? { ...h, vecesHoy: (h.vecesHoy || 0) + 1 } : h));
+        } else { recibirDano(15); }
+      };
+
+      const agregarItem = (e) => {
+        e.preventDefault();
+        if (tab === 'notas') {
+          if (!tituloNota.trim() || !contenidoNota.trim()) return;
+          if (editandoNota) {
+            setNotas(notas.map(n => n.id === editandoNota ? { ...n, titulo: tituloNota, contenido: contenidoNota } : n));
+            setEditandoNota(null);
+          } else {
+            const n = { id: Date.now(), titulo: tituloNota, contenido: contenidoNota, fecha: new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }) };
+            setNotas([n, ...notas]); ganarRecompensa(5);
+          }
+          setTituloNota(''); setContenidoNota(''); return;
+        }
+        if (!nuevoTexto.trim()) return;
+        const item = { id: Date.now(), texto: nuevoTexto };
+        if (tab === 'habitos') setHabitos([...habitos, { ...item, tipo: nuevoTipo, vecesHoy: 0 }]);
+        if (tab === 'diarias') setDiarias([...diarias, { ...item, completado: false }]);
+        if (tab === 'pendientes') setPendientes([...pendientes, { ...item, completado: false }]);
+        setNuevoTexto('');
+      };
+
+      const editarNota = (n) => {
+        setEditandoNota(n.id); setTituloNota(n.titulo); setContenidoNota(n.contenido); setTab('notas');
+      };
+
+      const eliminarItem = (id, lista) => {
+        if (lista === 'habitos') setHabitos(habitos.filter(i => i.id !== id));
+        if (lista === 'diarias') setDiarias(diarias.filter(i => i.id !== id));
+        if (lista === 'pendientes') setPendientes(pendientes.filter(i => i.id !== id));
+        if (lista === 'notas') { setNotas(notas.filter(i => i.id !== id)); if (editandoNota === id) { setEditandoNota(null); setTituloNota(''); setContenidoNota(''); } }
+      };
+
+      const completarDiaria = (id) => {
+        const d = diarias.find(x => x.id === id);
+        if (!d) return;
+        if (!d.completado) {
+          ganarRecompensa(15);
+          setStats(s => ({ ...s, tareasCompletadas: s.tareasCompletadas + 1 }));
+          const nuevas = diarias.map(x => x.id === id ? { ...x, completado: true } : x);
+          setDiarias(nuevas);
+          if (nuevas.length > 0 && nuevas.every(x => x.completado)) {
+            const hoy = hoyStr();
+            if (!diasCompletados[hoy]) {
+              setDiasCompletados(prev => ({ ...prev, [hoy]: true }));
+              setRacha(r => r + 1);
+            }
+          }
+        } else {
+          setDiarias(diarias.map(x => x.id === id ? { ...x, completado: false } : x));
+        }
+      };
+
+      const completarPendiente = (id) => {
+        const p = pendientes.find(x => x.id === id);
+        if (!p || p.completado) return;
+        ganarRecompensa(20);
+        setStats(s => ({ ...s, tareasCompletadas: s.tareasCompletadas + 1 }));
+        setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: true } : x));
+      };
+
+      const onFotoChange = (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = ev => setFotoPerfil(ev.target.result);
+        r.readAsDataURL(f);
+      };
+
+      const card = "bg-[#101019] border border-[rgba(129,120,241,0.16)] rounded-[10px]";
+      const showInput = ['habitos', 'diarias', 'pendientes', 'notas'].includes(tab);
+      const labelMap = { habitos: 'hábitos', diarias: 'diarias', pendientes: 'tareas' };
+      const TIPOS = [
+        { id: 'positivo', label: '+ Positivo', c: '#a78bfa' },
+        { id: 'negativo', label: '− Negativo', c: '#fb7185' },
+        { id: 'ambos', label: '± Ambos', c: '#8b93a3' },
+      ];
+
+      return (
+        <div className="max-w-md mx-auto h-screen flex flex-col bg-[#08080c] text-[#e7e9ee] relative overflow-hidden select-none antialiased">
+
+          {/* ===== HEADER / HUD ===== */}
+          <header className="px-[18px] pt-4 pb-4 bg-[#0b0b11] border-b border-white/[0.06] flex-shrink-0">
+            <div className="flex items-center gap-[14px]">
+              <div className="relative flex-shrink-0 cursor-pointer" onClick={() => fileRef.current && fileRef.current.click()}>
+                <div className="w-[52px] h-[52px] rounded-[13px] overflow-hidden flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#231f3c,#12101f)', border: '1.5px solid rgba(124,115,240,0.55)', boxShadow: '0 0 18px rgba(124,115,240,0.22)' }}>
+                  {fotoPerfil
+                    ? <div className="w-full h-full" style={{ backgroundImage: `url(${fotoPerfil})`, backgroundSize: 'cover', backgroundPosition: 'center' }}></div>
+                    : <span className="mono text-xl font-extrabold text-[#cbc5f8]">M</span>}
+                </div>
+                <div className="mono absolute -bottom-[5px] -right-[5px] text-[9px] font-black px-[5px] py-[2px] rounded-[6px] border-2 border-[#0a0a0f]" style={{ background: 'linear-gradient(135deg,#f5c451,#f5972e)', color: '#231600' }}>LV{nivel}</div>
+                <div className="absolute -top-[5px] -left-[5px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-[#0a0a0f]" style={{ background: ACCENT, boxShadow: '0 2px 6px rgba(0,0,0,0.45)' }}><IconCamera /></div>
+                <input type="file" accept="image/*" ref={fileRef} onChange={onFotoChange} className="hidden" />
+              </div>
+
+              <div className="flex-1 flex flex-col gap-[9px] min-w-0">
+                <div>
+                  <div className="flex justify-between items-center mb-[5px]">
+                    <span className="flex items-center gap-[5px] text-[9px] font-extrabold tracking-[0.08em] text-[#fb7185]"><span className="w-[6px] h-[6px] rounded-full bg-[#fb7185]" style={{ boxShadow: '0 0 6px #fb7185' }}></span>VIDA</span>
+                    <span className="mono text-[10px] font-bold text-[#8b93a3]">{hp}/100</span>
+                  </div>
+                  <SegBar pct={hp} c1="#f43f5e" c2="#fb7185" />
+                </div>
+                <div>
+                  <div className="flex justify-between items-center mb-[5px]">
+                    <span className="flex items-center gap-[5px] text-[9px] font-extrabold tracking-[0.08em] text-[#a78bfa]"><span className="w-[6px] h-[6px] rounded-full bg-[#a78bfa]" style={{ boxShadow: '0 0 6px #a78bfa' }}></span>EXP</span>
+                    <span className="mono text-[10px] font-bold text-[#8b93a3]">{xp}/100</span>
+                  </div>
+                  <SegBar pct={xp} c1="#8b5cf6" c2="#a855f7" />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-[15px] pt-[13px] border-t border-white/[0.06]">
+              <div className="flex justify-between items-center mb-[11px] px-[2px]">
+                <div className="flex items-center gap-[6px]">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f5b23e" strokeWidth="2"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3.5"></circle></svg>
+                  <span className="mono text-[13px] font-extrabold text-[#e7e9ee]">{oro}</span>
+                </div>
+                <div className="flex items-center gap-[5px] text-xs font-bold text-[#f59e42]"><span className="text-[13px]">🔥</span> {racha} días</div>
+              </div>
+              <div className="grid grid-cols-7 gap-[5px]">
+                {historialDias.map(d => (
+                  <div key={d.id} className="flex flex-col items-center gap-1">
+                    <span className="text-[8px] font-extrabold tracking-[0.04em] text-[#5b6270] uppercase">{d.nombre}</span>
+                    <div className="mono w-[30px] h-[30px] rounded-[6px] flex items-center justify-center text-[11px] font-bold transition-all duration-300" style={{
+                      background: d.completado ? 'rgba(16,185,129,0.16)' : (d.isToday ? 'rgba(124,115,240,0.14)' : 'rgba(255,255,255,0.03)'),
+                      color: d.completado ? '#34d399' : (d.isToday ? '#b6adf7' : '#6b7280'),
+                      border: d.completado ? '1px solid rgba(16,185,129,0.5)' : (d.isToday ? '1px solid rgba(124,115,240,0.6)' : '1px solid rgba(255,255,255,0.06)')
+                    }}>{d.numero}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </header>
+
+          {/* ===== NAV (top segmentado) ===== */}
+          <nav className="flex gap-1 px-2 py-2 bg-[#0b0b12] border-b border-white/[0.06] flex-shrink-0 overflow-x-auto hide-scrollbar">
+            {NAV.map(({ id, label, Icon }) => {
+              const active = tab === id;
+              return (
+                <button key={id} onClick={() => setTab(id)} className="flex-1 min-w-[60px] flex flex-col items-center gap-1 py-2 px-1 rounded-[12px] transition-all active:scale-95" style={{ color: active ? ACCENT : '#585f6d', background: active ? 'rgba(124,115,240,0.12)' : 'transparent' }}>
+                  <Icon />
+                  <span className="text-[9px] font-bold tracking-[0.02em]">{label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* ===== MAIN ===== */}
+          <main className={"flex-1 overflow-y-auto hide-scrollbar p-4 " + (showInput ? (tab === 'habitos' ? 'pb-40' : 'pb-28') : 'pb-6')}>
+
+            {tab === 'dashboard' && (
+              <div className="flex flex-col gap-[14px] anim-fade">
+                <h2 className="text-[17px] font-extrabold text-[#f2f3f6] m-0 tracking-[-0.01em]">Resumen del día</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className={card + " p-4 flex flex-col gap-[10px]"}>
+                    <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#a855f7]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">XP obtenida</span></div>
+                    <span className="mono text-[32px] font-extrabold leading-none text-[#c4b5fd]">{stats.xpGanada}</span>
+                  </div>
+                  <div className={card + " p-4 flex flex-col gap-[10px]"}>
+                    <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#10b981]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Tareas listas</span></div>
+                    <span className="mono text-[32px] font-extrabold leading-none text-[#6ee7b7]">{stats.tareasCompletadas}</span>
+                  </div>
+                </div>
+                <div className={card + " p-[18px]"}>
+                  <div className="flex justify-between items-center mb-[18px]">
+                    <h3 className="text-[13px] font-bold text-[#d3d6dd] m-0">Productividad semanal</h3>
+                    <span className="text-[10px] text-[#5b6270] font-semibold">7 días</span>
+                  </div>
+                  <div className="flex items-end justify-between gap-[7px] h-[126px]">
+                    {historialDias.map(d => (
+                      <div key={d.id} className="flex flex-col items-center justify-end flex-1 h-full gap-2">
+                        <div className="w-full flex-1 flex items-end">
+                          <div className="w-full transition-all duration-700" style={{
+                            height: d.nivelActividad + '%', minHeight: 4, borderRadius: '3px 3px 0 0',
+                            background: d.nivelActividad > 5 ? 'linear-gradient(180deg,#a855f7,#7c73f0)' : 'rgba(255,255,255,0.07)',
+                            boxShadow: d.nivelActividad > 5 ? '0 0 12px rgba(124,115,240,0.3)' : 'none'
+                          }}></div>
+                        </div>
+                        <span className="text-[9px] font-bold text-[#5b6270] uppercase">{d.nombre}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {tab === 'habitos' && (
+              <div className="flex flex-col gap-[10px] anim-fade">
+                {habitos.map(h => {
+                  const hecho = (h.vecesHoy || 0) > 0;
+                  return (
+                    <div key={h.id} className="p-[14px] rounded-[10px] transition-all" style={{
+                      background: hecho ? '#161433' : '#101019',
+                      border: hecho ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(129,120,241,0.16)',
+                      boxShadow: hecho ? '0 0 18px rgba(124,115,240,0.15)' : 'none'
+                    }}>
+                      <div className="flex items-center justify-between gap-[10px]">
+                        <div className="flex flex-col gap-1 min-w-0 flex-1">
+                          <span className="text-sm font-semibold leading-tight" style={{ color: hecho ? '#f3f2fb' : '#cdd0d8' }}>{h.texto}</span>
+                          {hecho && <span className="text-[10px] font-bold text-[#a99ff5]">✨ Registrado hoy · {h.vecesHoy}</span>}
+                        </div>
+                        <div className="flex items-center gap-[7px] flex-shrink-0">
+                          {(h.tipo === 'positivo' || h.tipo === 'ambos') && (
+                            <button onClick={() => accionarHabito(h.id, 'positivo')} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-xl font-bold transition-all active:scale-90" style={{ background: hecho ? 'linear-gradient(135deg,#7c73f0,#a855f7)' : 'rgba(124,115,240,0.16)', color: hecho ? '#fff' : '#b6adf7', boxShadow: hecho ? '0 4px 12px rgba(124,115,240,0.35)' : 'none' }}>+</button>
+                          )}
+                          {(h.tipo === 'negativo' || h.tipo === 'ambos') && (
+                            <button onClick={() => accionarHabito(h.id, 'negativo')} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-2xl font-bold bg-[rgba(244,63,94,0.14)] text-[#fb7185] transition-all active:scale-90">−</button>
+                          )}
+                          <button onClick={() => eliminarItem(h.id, 'habitos')} className="w-[30px] h-[38px] text-[#4b5160] text-xs font-bold">✕</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {tab === 'diarias' && (
+              <div className="flex flex-col gap-[10px] anim-fade">
+                {diarias.map(d => (
+                  <div key={d.id} className={card + " p-[14px] flex items-center justify-between gap-[10px] transition-all"} style={{ opacity: d.completado ? 0.5 : 1 }}>
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <button onClick={() => completarDiaria(d.id)} className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center flex-shrink-0 transition-all active:scale-90" style={{ border: d.completado ? 'none' : '2px solid #565d6c', background: d.completado ? ACCENT : 'transparent' }}>
+                        {d.completado && <IconTick />}
+                      </button>
+                      <span className="text-sm font-medium truncate" style={{ color: d.completado ? '#6b7280' : '#d3d6dd', textDecoration: d.completado ? 'line-through' : 'none' }}>{d.texto}</span>
+                    </div>
+                    <button onClick={() => eliminarItem(d.id, 'diarias')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {tab === 'pendientes' && (
+              <div className="flex flex-col gap-[10px] anim-fade">
+                {pendientes.filter(p => !p.completado).map(p => (
+                  <div key={p.id} className={card + " p-[14px] flex items-center justify-between gap-[10px]"}>
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <button onClick={() => completarPendiente(p.id)} className="w-[22px] h-[22px] rounded-full border-2 border-[#565d6c] flex-shrink-0 transition-all active:scale-90 hover:border-emerald-400"></button>
+                      <span className="text-sm font-medium text-[#d3d6dd] truncate">{p.texto}</span>
+                    </div>
+                    <button onClick={() => eliminarItem(p.id, 'pendientes')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>
+                  </div>
+                ))}
+                {pendientes.filter(p => !p.completado).length === 0 && (
+                  <div className="text-center py-11 text-[#5b6270] text-sm">Todo bajo control. Sin tareas pendientes.</div>
+                )}
+              </div>
+            )}
+
+            {tab === 'archivo' && (
+              <div className="flex flex-col gap-[10px] anim-fade">
+                {pendientes.filter(p => p.completado).length === 0 && (
+                  <div className="text-center py-11 text-[#5b6270] text-sm italic">Tus victorias aparecerán aquí.</div>
+                )}
+                {pendientes.filter(p => p.completado).map(p => (
+                  <div key={p.id} className="p-[14px] rounded-[10px] flex items-center justify-between gap-[10px] bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.62 }}>
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
+                      <span className="text-sm text-[#6b7280] line-through truncate">{p.texto}</span>
+                    </div>
+                    <button onClick={() => eliminarItem(p.id, 'pendientes')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {tab === 'notas' && (
+              <div className="flex flex-col gap-[10px] anim-fade">
+                {notas.map(n => (
+                  <div key={n.id} className={card + " p-[14px]"}>
+                    <div className="flex justify-between items-start gap-[10px]">
+                      <div onClick={() => setNotaExpandida(n)} className="min-w-0 flex-1 cursor-pointer">
+                        <div className="flex items-center gap-2 mb-[5px]">
+                          <h3 className="text-sm font-bold text-[#f2f3f6] m-0 truncate">{n.titulo}</h3>
+                          <span className="text-[9px] font-bold text-[#5b6270] uppercase flex-shrink-0">{n.fecha}</span>
+                        </div>
+                        <p className="text-xs text-[#8b93a3] leading-relaxed m-0" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.contenido}</p>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button onClick={() => editarNota(n)} className="text-[#6b7280] hover:text-[#b6adf7] p-1"><IconEdit /></button>
+                        <button onClick={() => eliminarItem(n.id, 'notas')} className="text-[#4b5160] text-xs font-bold p-1">✕</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </main>
+
+          {/* ===== FEEDBACK FLOTANTE ===== */}
+          <div className="absolute top-[104px] left-0 right-0 flex flex-col items-center gap-[2px] pointer-events-none z-[60]">
+            {floaters.map(f => (
+              <span key={f.id} className="mono font-extrabold text-[15px]" style={{ animation: 'floatUp 1.1s ease-out forwards', color: f.color, textShadow: `0 0 12px ${f.color}99` }}>{f.text}</span>
+            ))}
+          </div>
+
+          {/* ===== INPUT ===== */}
+          {showInput && (
+            <div className="absolute left-0 right-0 bottom-0 bg-[rgba(10,10,15,0.94)] backdrop-blur-md border-t border-white/[0.07] p-[14px] z-[25]">
+              {tab === 'habitos' && (
+                <div className="flex gap-[6px] mb-[10px]">
+                  {TIPOS.map(t => (
+                    <button key={t.id} onClick={() => setNuevoTipo(t.id)} className="flex-1 py-[7px] rounded-lg text-[11px] font-bold transition-all" style={{
+                      background: nuevoTipo === t.id ? 'rgba(124,115,240,0.18)' : 'rgba(255,255,255,0.04)',
+                      color: nuevoTipo === t.id ? t.c : '#6b7280',
+                      border: nuevoTipo === t.id ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                    }}>{t.label}</button>
+                  ))}
+                </div>
+              )}
+              {tab !== 'notas' ? (
+                <form onSubmit={agregarItem} className="flex gap-2">
+                  <input value={nuevoTexto} onChange={e => setNuevoTexto(e.target.value)} placeholder={`Nueva entrada en ${labelMap[tab] || tab}...`} className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#7c73f0]" />
+                  <button type="submit" className="w-12 rounded-lg text-white text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>+</button>
+                </form>
+              ) : (
+                <form onSubmit={agregarItem} className="flex flex-col gap-2">
+                  {editandoNota && <div className="flex justify-between items-center text-[10px] font-bold text-[#a99ff5] px-1"><span>✏️ Editando nota</span><button type="button" onClick={() => { setEditandoNota(null); setTituloNota(''); setContenidoNota(''); }} className="text-[#6b7280]">Cancelar</button></div>}
+                  <input value={tituloNota} onChange={e => setTituloNota(e.target.value)} placeholder="Título de la nota..." className="bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-[10px] text-xs text-[#f2f3f6] outline-none focus:border-[#7c73f0]" />
+                  <div className="flex gap-2">
+                    <textarea value={contenidoNota} onChange={e => setContenidoNota(e.target.value)} placeholder="Escribe aquí..." rows="2" className="flex-1 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-[10px] text-xs text-[#f2f3f6] outline-none focus:border-[#7c73f0] resize-none"></textarea>
+                    <button type="submit" className="px-4 rounded-lg text-white text-[13px] font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>{editandoNota ? 'Actualizar' : 'Guardar'}</button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
+
+          {/* ===== MODAL NOTA ===== */}
+          {notaExpandida && (
+            <div className="absolute inset-0 z-[70] flex items-end" style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(6px)' }} onClick={() => setNotaExpandida(null)}>
+              <div onClick={e => e.stopPropagation()} className="w-full p-6 border-t border-white/10 flex flex-col" style={{ background: '#12121a', borderRadius: '28px 28px 0 0', maxHeight: '78%', animation: 'slideUp .3s ease' }}>
+                <div className="flex justify-between items-start mb-4 gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0 mb-1">{notaExpandida.titulo}</h2>
+                    <span className="text-[11px] text-[#5b6270] font-semibold">{notaExpandida.fecha}</span>
+                  </div>
+                  <button onClick={() => setNotaExpandida(null)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
+                </div>
+                <div className="overflow-y-auto text-[#c2c6cf] text-sm leading-relaxed whitespace-pre-wrap">{notaExpandida.contenido}</div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+
+  <script>
+    (function () {
+      function boot() {
+        var src = document.getElementById('app-src').textContent;
+        var out = Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code;
+        (0, eval)(out);
+      }
+      if (window.Babel) boot();
+      else window.addEventListener('DOMContentLoaded', boot);
+    })();
+  </script>
+</body>
+</html>
