@@ -1,7 +1,7 @@
 /* Life Track - Service Worker
    Precachea el shell de la app y guarda en caché las librerías (React, Tailwind,
    Babel) la primera vez que cargan, para que la app funcione sin internet. */
-const CACHE = 'lifetrack-v3';
+const CACHE = 'lifetrack-v4';
 
 // Recursos locales del propio origen (rutas relativas -> funcionan en subcarpetas)
 const APP_SHELL = [
@@ -12,6 +12,7 @@ const APP_SHELL = [
   './icon-512.png',
   './icon-512-maskable.png',
   './apple-touch-icon.png',
+  'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js',
 ];
 
 self.addEventListener('install', (event) => {
