@@ -6,6 +6,15 @@
   <meta name="theme-color" content="#050508">
   <title>Life Track</title>
 
+  <!-- PWA / instalable en el celular -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="./icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Life Track">
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -143,6 +152,7 @@
       const [notaExpandida, setNotaExpandida] = useState(null);
       const [floaters, setFloaters] = useState([]);
       const fileRef = useRef(null);
+      const importRef = useRef(null);
 
       const esHoy = selDia === todayKey;
 
@@ -277,6 +287,35 @@
         const r = new FileReader();
         r.onload = ev => setFotoPerfil(ev.target.result);
         r.readAsDataURL(f);
+      };
+
+      // ---- Respaldo: exportar / importar ----
+      const exportarDatos = () => {
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, habitos, diarias, pendientes, notas, _exportado: new Date().toISOString(), _version: 3 };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'lifetrack-respaldo-' + todayKey + '.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+      const importarDatos = (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = ev => {
+          try {
+            const data = JSON.parse(ev.target.result);
+            if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('inválido');
+            if (!('habitos' in data) && !('notas' in data)) throw new Error('inválido');
+            localStorage.setItem(LS_KEY, JSON.stringify(data));
+            location.reload();
+          } catch (err) {
+            alert('No se pudo importar: el archivo no es un respaldo válido de Life Track.');
+          }
+        };
+        r.readAsText(f);
+        e.target.value = '';
       };
 
       // ---- Navegación entre días ----
@@ -428,6 +467,16 @@
                         <span className="text-[9px] font-bold uppercase" style={{ color: d.isSel ? '#b6adf7' : '#5b6270' }}>{d.nombre}</span>
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                <div className={card + " p-4 flex flex-col gap-3"}>
+                  <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#f5b23e]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Respaldo de datos</span></div>
+                  <p className="text-[11px] text-[#6b7280] leading-relaxed m-0">Tus datos se guardan en este dispositivo. Exporta una copia por seguridad o impórtala en otro teléfono.</p>
+                  <div className="flex gap-2">
+                    <button onClick={exportarDatos} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#c4b5fd] active:scale-95 transition-all" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>Exportar</button>
+                    <button onClick={() => importRef.current && importRef.current.click()} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Importar</button>
+                    <input type="file" accept="application/json,.json" ref={importRef} onChange={importarDatos} className="hidden" />
                   </div>
                 </div>
               </div>
@@ -627,6 +676,15 @@
       if (window.Babel) boot();
       else window.addEventListener('DOMContentLoaded', boot);
     })();
+  </script>
+
+  <script>
+    // Registro del service worker (habilita instalación y uso sin internet)
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./sw.js').catch(function () {});
+      });
+    }
   </script>
 </body>
 </html>
