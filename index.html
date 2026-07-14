@@ -879,10 +879,21 @@
   </script>
 
   <script>
-    // Registro del service worker (habilita instalación y uso sin internet)
+    // Service worker: instalación, uso sin internet y auto-actualización.
     if ('serviceWorker' in navigator) {
+      // Cuando una versión nueva toma el control, recarga una vez para mostrarla.
+      var recargando = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (recargando) return;
+        recargando = true;
+        window.location.reload();
+      });
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('./sw.js').catch(function () {});
+        navigator.serviceWorker.register('./sw.js').then(function (reg) {
+          // Busca actualizaciones al abrir y de vez en cuando mientras está abierta.
+          reg.update();
+          setInterval(function () { reg.update(); }, 60 * 60 * 1000);
+        }).catch(function () {});
       });
     }
   </script>

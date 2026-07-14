@@ -1,7 +1,8 @@
 /* Life Track - Service Worker
-   Precachea el shell de la app y guarda en caché las librerías (React, Tailwind,
-   Babel) la primera vez que cargan, para que la app funcione sin internet. */
-const CACHE = 'lifetrack-v4';
+   - El documento HTML se sirve "red primero": con internet siempre cargas la
+     ÚLTIMA versión; sin internet, la versión guardada (offline).
+   - Iconos y librerías (versionadas) se sirven "caché primero". */
+const CACHE = 'lifetrack-v5';
 
 // Recursos locales del propio origen (rutas relativas -> funcionan en subcarpetas)
 const APP_SHELL = [
@@ -36,13 +37,30 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
-  // Cache-first con revalidación en segundo plano (stale-while-revalidate).
+  const esNavegacion = req.mode === 'navigate' || req.destination === 'document';
+
+  if (esNavegacion) {
+    // RED PRIMERO: siempre intenta traer el HTML más reciente cuando hay conexión.
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          const copia = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copia)).catch(() => {});
+          return res;
+        })
+        .catch(() =>
+          caches.match(req).then((c) => c || caches.match('./index.html') || caches.match('./'))
+        )
+    );
+    return;
+  }
+
+  // CACHÉ PRIMERO con revalidación en segundo plano (para iconos y librerías).
   event.respondWith(
     caches.open(CACHE).then((cache) =>
       cache.match(req).then((cached) => {
         const network = fetch(req)
           .then((res) => {
-            // Guarda respuestas válidas (incluidas las opacas de CDN) para uso offline.
             if (res && (res.ok || res.type === 'opaque')) {
               cache.put(req, res.clone()).catch(() => {});
             }
