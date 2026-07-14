@@ -124,6 +124,32 @@
     const DIF_ORDEN = ['trivial', 'facil', 'media', 'dificil'];
     const difDe = (it) => DIF[(it && it.dificultad) || 'media'];
 
+    // ---------- Modos de balance (XP que da / vida que quita / vida que cura, por dificultad) ----------
+    const PRESETS = {
+      suave:    { trivial: { xp: 5, dano: 1, cura: 2 }, facil: { xp: 10, dano: 3, cura: 3 }, media: { xp: 16, dano: 6,  cura: 4 }, dificil: { xp: 24, dano: 10, cura: 6 } },
+      normal:   { trivial: { xp: 3, dano: 2, cura: 1 }, facil: { xp: 6,  dano: 5, cura: 2 }, media: { xp: 10, dano: 10, cura: 3 }, dificil: { xp: 16, dano: 18, cura: 5 } },
+      exigente: { trivial: { xp: 2, dano: 4, cura: 1 }, facil: { xp: 4,  dano: 9, cura: 1 }, media: { xp: 7,  dano: 16, cura: 2 }, dificil: { xp: 12, dano: 28, cura: 3 } },
+    };
+    const MODOS = [
+      { id: 'suave',         label: 'Suave',         desc: 'Da más XP y fallar apenas duele' },
+      { id: 'normal',        label: 'Normal',        desc: 'Equilibrado' },
+      { id: 'exigente',      label: 'Exigente',      desc: 'Da menos XP y fallar duele mucho' },
+      { id: 'personalizado', label: 'Personalizado', desc: 'Tus propios números' },
+    ];
+
+    // ---------- Rangos (según tu nivel; los saltos crecen para que cada rango cueste más) ----------
+    const RANGOS = [
+      { min: 1,  label: 'Aprendiz',     c: '#8b93a3' },
+      { min: 5,  label: 'Iniciado',     c: '#34d399' },
+      { min: 10, label: 'Adepto',       c: '#38bdf8' },
+      { min: 20, label: 'Experto',      c: '#a78bfa' },
+      { min: 35, label: 'Maestro',      c: '#f5b23e' },
+      { min: 55, label: 'Gran Maestro', c: '#fb7185' },
+      { min: 80, label: 'Leyenda',      c: '#f472b6' },
+    ];
+    const rangoDe = (nivel) => { let r = RANGOS[0]; for (const x of RANGOS) { if (nivel >= x.min) r = x; } return r; };
+    const rangoSiguiente = (nivel) => { for (const x of RANGOS) { if (nivel < x.min) return x; } return null; };
+
     function App() {
       // ---- Progresión del personaje (inicio coherente: todo bajo) ----
       const [nivel, setNivel] = useState(G.nivel ?? 1);
@@ -139,6 +165,10 @@
       const [habitLog, setHabitLog] = useState(G.habitLog ?? {});          // { habitId: { dia: conteo } }
       const [diariaLog, setDiariaLog] = useState(G.diariaLog ?? {});       // { diariaId: { dia: true } }
       const [ultimoDia, setUltimoDia] = useState(G.ultimoDia ?? todayKey); // última vez que se abrió (para penalizar diarias sin cumplir)
+
+      // ---- Balance ajustable ----
+      const [modoBalance, setModoBalance] = useState(G.modoBalance ?? 'normal');
+      const [balance, setBalance] = useState(G.balance ?? PRESETS.normal);
 
       // ---- Definiciones (se repiten cada día) ----
       const [habitos, setHabitos] = useState(G.habitos ?? [
@@ -165,6 +195,7 @@
       const [editandoNota, setEditandoNota] = useState(null);
       const [notaExpandida, setNotaExpandida] = useState(null);
       const [notasVista, setNotasVista] = useState('dia');
+      const [ajustesAbierto, setAjustesAbierto] = useState(false);
       const [avisoPenal, setAvisoPenal] = useState(0);
       const [floaters, setFloaters] = useState([]);
       const fileRef = useRef(null);
@@ -174,17 +205,18 @@
 
       // ---- Guardado automático ----
       useEffect(() => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, ultimoDia, habitos, diarias, pendientes, notas };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, ultimoDia, habitos, diarias, pendientes, notas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas]);
 
       // ---- Al abrir en un día nuevo: penalizar las diarias que no completaste el último día activo ----
       useEffect(() => {
         if (ultimoDia && ultimoDia < todayKey && diarias.length > 0) {
           let dmg = 0;
+          const bal0 = G.balance || PRESETS.normal;
           diarias.forEach(d => {
             const hecha = diariaLog[d.id] && diariaLog[d.id][ultimoDia];
-            if (!hecha) dmg += difDe(d).dano;
+            if (!hecha) dmg += (bal0[d.dificultad || 'media'] || PRESETS.normal.media).dano;
           });
           if (dmg > 0) {
             setHp(h => Math.max(1, h - dmg)); // nunca mata por ausencia; deja al menos 1
@@ -257,23 +289,32 @@
         addFloater('−' + cant + ' XP', '#fb7185');
       };
 
+      // Valores de balance activos para un elemento según su dificultad
+      const valDe = (it) => balance[(it && it.dificultad) || 'media'] || PRESETS.normal.media;
+      const aplicarModo = (id) => { setModoBalance(id); if (id !== 'personalizado') setBalance(PRESETS[id]); };
+      const setBalVal = (tier, campo, valor) => {
+        const n = Math.max(0, Math.min(999, parseInt(valor, 10) || 0));
+        setBalance(b => ({ ...b, [tier]: { ...b[tier], [campo]: n } }));
+        setModoBalance('personalizado');
+      };
+
       // ---- Acciones (sólo sobre el día de hoy) ----
       const countHabito = (id) => (habitLog[id] && habitLog[id][selDia]) || 0;
       const accionarHabito = (id, tipo) => {
         if (!esHoy) return;
         const h = habitos.find(x => x.id === id);
-        const d = difDe(h);
+        const v = valDe(h);
         if (tipo === 'positivo') {
-          ganarRecompensa(d.xp); curar(d.cura); contarTarea();
+          ganarRecompensa(v.xp); curar(v.cura); contarTarea();
           setHabitLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
-        } else { recibirDano(d.dano); }
+        } else { recibirDano(v.dano); }
       };
 
       const hechoDiaria = (id) => !!(diariaLog[id] && diariaLog[id][selDia]);
       const completarDiaria = (id) => {
         if (!esHoy) return;
         const dObj = diarias.find(x => x.id === id);
-        const df = difDe(dObj);
+        const df = valDe(dObj);
         const done = hechoDiaria(id);
         if (!done) {
           ganarRecompensa(df.xp); curar(df.cura); contarTarea();
@@ -294,7 +335,7 @@
         if (!esHoy) return;
         const p = pendientes.find(x => x.id === id);
         if (!p || p.completado) return;
-        const df = difDe(p);
+        const df = valDe(p);
         ganarRecompensa(df.xp); curar(df.cura); contarTarea();
         setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: true, completadoFecha: todayKey } : x));
       };
@@ -304,7 +345,7 @@
         if (!esHoy) return;
         const p = pendientes.find(x => x.id === id);
         if (!p || !p.completado) return;
-        quitarRecompensa(difDe(p).xp, p.completadoFecha || todayKey);
+        quitarRecompensa(valDe(p).xp, p.completadoFecha || todayKey);
         setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: false, completadoFecha: null } : x));
       };
 
@@ -518,6 +559,10 @@
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f5b23e" strokeWidth="2"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3.5"></circle></svg>
                   <span className="mono text-[13px] font-extrabold text-[#e7e9ee]">{oro}</span>
                 </div>
+                <div className="flex items-center gap-[5px] px-[9px] py-[3px] rounded-full" style={{ background: rangoDe(nivel).c + '22', border: '1px solid ' + rangoDe(nivel).c + '55' }}>
+                  <span className="w-[6px] h-[6px] rounded-full" style={{ background: rangoDe(nivel).c, boxShadow: '0 0 6px ' + rangoDe(nivel).c }}></span>
+                  <span className="text-[10px] font-extrabold tracking-[0.02em]" style={{ color: rangoDe(nivel).c }}>{rangoDe(nivel).label}</span>
+                </div>
                 <div className="flex items-center gap-[5px] text-xs font-bold text-[#f59e42]"><span className="text-[13px]">🔥</span> {racha} días</div>
               </div>
               <div className="grid grid-cols-7 gap-[5px]">
@@ -611,6 +656,17 @@
                         <span className="text-[9px] font-bold uppercase" style={{ color: d.isSel ? '#b6adf7' : '#5b6270' }}>{d.nombre}</span>
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                <div className={card + " p-4 flex flex-col gap-3"}>
+                  <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#7c73f0]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Balance del juego</span></div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-[3px]">
+                      <span className="text-[12px] font-bold text-[#d3d6dd]">Modo: <span style={{ color: '#b6adf7' }}>{(MODOS.find(m => m.id === modoBalance) || MODOS[1]).label}</span></span>
+                      <span className="text-[10px] text-[#6b7280]">Rango actual: <span style={{ color: rangoDe(nivel).c, fontWeight: 700 }}>{rangoDe(nivel).label}</span>{rangoSiguiente(nivel) ? ' · siguiente en nivel ' + rangoSiguiente(nivel).min : ' · rango máximo'}</span>
+                    </div>
+                    <button onClick={() => setAjustesAbierto(true)} className="py-[9px] px-[14px] rounded-lg text-[12px] font-bold text-[#c4b5fd] active:scale-95 transition-all flex-shrink-0" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>Ajustar</button>
                   </div>
                 </div>
 
@@ -855,6 +911,75 @@
                   <button onClick={() => setNotaExpandida(null)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
                 </div>
                 <div className="overflow-y-auto text-[#c2c6cf] text-sm leading-relaxed whitespace-pre-wrap">{notaExpandida.contenido}</div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== MODAL AJUSTES DE BALANCE ===== */}
+          {ajustesAbierto && (
+            <div className="absolute inset-0 z-[70] flex items-end" style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(6px)' }} onClick={() => setAjustesAbierto(false)}>
+              <div onClick={e => e.stopPropagation()} className="w-full p-6 border-t border-white/10 flex flex-col" style={{ background: '#12121a', borderRadius: '28px 28px 0 0', maxHeight: '86%', animation: 'slideUp .3s ease' }}>
+                <div className="flex justify-between items-center mb-4 gap-3">
+                  <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0">Ajustes de balance</h2>
+                  <button onClick={() => setAjustesAbierto(false)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
+                </div>
+
+                <div className="overflow-y-auto hide-scrollbar flex flex-col gap-4">
+                  <div>
+                    <span className="text-[10px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">Modo</span>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      {MODOS.map(m => {
+                        const sel = modoBalance === m.id;
+                        return (
+                          <button key={m.id} onClick={() => aplicarModo(m.id)} className="text-left p-[10px] rounded-lg transition-all" style={{
+                            background: sel ? 'rgba(124,115,240,0.16)' : 'rgba(255,255,255,0.04)',
+                            border: sel ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.07)'
+                          }}>
+                            <div className="text-[13px] font-bold" style={{ color: sel ? '#c4b5fd' : '#cdd0d8' }}>{m.label}</div>
+                            <div className="text-[10px] text-[#6b7280] leading-tight mt-[2px]">{m.desc}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">XP que da / vida que quita</span>
+                      <span className="text-[9px] text-[#5b6270]">{modoBalance === 'personalizado' ? 'toca para editar' : 'según el modo'}</span>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center px-1">
+                        <span className="text-[9px] font-bold text-[#5b6270] uppercase">Dificultad</span>
+                        <span className="text-[9px] font-bold text-[#a78bfa] uppercase w-[54px] text-center">+XP</span>
+                        <span className="text-[9px] font-bold text-[#fb7185] uppercase w-[54px] text-center">−Vida</span>
+                      </div>
+                      {DIF_ORDEN.map(k => {
+                        const v = balance[k] || PRESETS.normal[k];
+                        return (
+                          <div key={k} className="grid grid-cols-[1fr_auto_auto] gap-2 items-center bg-[#0d0d14] border border-white/[0.06] rounded-lg p-2">
+                            <span className="text-[12px] font-bold flex items-center gap-[6px]" style={{ color: DIF[k].c }}>● {DIF[k].label}</span>
+                            <input type="number" min="0" max="999" value={v.xp} onChange={e => setBalVal(k, 'xp', e.target.value)} className="mono w-[54px] bg-[#0c0c14] border border-white/10 rounded-md px-2 py-[6px] text-[13px] text-[#c4b5fd] text-center outline-none focus:border-[#7c73f0]" />
+                            <input type="number" min="0" max="999" value={v.dano} onChange={e => setBalVal(k, 'dano', e.target.value)} className="mono w-[54px] bg-[#0c0c14] border border-white/10 rounded-md px-2 py-[6px] text-[13px] text-[#fb7185] text-center outline-none focus:border-[#7c73f0]" />
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-[#6b7280] leading-relaxed mt-2 m-0">Editar cualquier número te pone en modo <b className="text-[#8b93a3]">Personalizado</b>. Aplica a lo que hagas de ahora en adelante.</p>
+                  </div>
+
+                  <div className="border-t border-white/[0.06] pt-3">
+                    <span className="text-[10px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">Rangos por nivel</span>
+                    <div className="flex flex-wrap gap-[6px] mt-2">
+                      {RANGOS.map(r => {
+                        const actual = rangoDe(nivel).label === r.label;
+                        return (
+                          <span key={r.label} className="text-[10px] font-bold px-[9px] py-[4px] rounded-full" style={{ background: r.c + (actual ? '33' : '14'), color: r.c, border: '1px solid ' + r.c + (actual ? '99' : '33') }}>{r.label} · Lv{r.min}</span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
