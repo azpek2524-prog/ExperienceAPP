@@ -114,6 +114,16 @@
       { id: 'archivo', label: 'Archivo', Icon: IconArchive },
     ];
 
+    // ---------- Dificultad: pondera cuánta XP das al lograr y cuánta vida pierdes al fallar ----------
+    const DIF = {
+      trivial: { label: 'Trivial', xp: 3,  dano: 2,  cura: 1, c: '#8b93a3' },
+      facil:   { label: 'Fácil',   xp: 6,  dano: 5,  cura: 2, c: '#34d399' },
+      media:   { label: 'Media',   xp: 10, dano: 10, cura: 3, c: '#a78bfa' },
+      dificil: { label: 'Difícil', xp: 16, dano: 18, cura: 5, c: '#fb7185' },
+    };
+    const DIF_ORDEN = ['trivial', 'facil', 'media', 'dificil'];
+    const difDe = (it) => DIF[(it && it.dificultad) || 'media'];
+
     function App() {
       // ---- Progresión del personaje (inicio coherente: todo bajo) ----
       const [nivel, setNivel] = useState(G.nivel ?? 1);
@@ -128,6 +138,7 @@
       const [diasCompletados, setDiasCompletados] = useState(G.diasCompletados ?? {}); // { dia: true }
       const [habitLog, setHabitLog] = useState(G.habitLog ?? {});          // { habitId: { dia: conteo } }
       const [diariaLog, setDiariaLog] = useState(G.diariaLog ?? {});       // { diariaId: { dia: true } }
+      const [ultimoDia, setUltimoDia] = useState(G.ultimoDia ?? todayKey); // última vez que se abrió (para penalizar diarias sin cumplir)
 
       // ---- Definiciones (se repiten cada día) ----
       const [habitos, setHabitos] = useState(G.habitos ?? [
@@ -148,10 +159,13 @@
       const [selDia, setSelDia] = useState(todayKey);
       const [nuevoTexto, setNuevoTexto] = useState('');
       const [nuevoTipo, setNuevoTipo] = useState('ambos');
+      const [nuevaDif, setNuevaDif] = useState('media');
       const [tituloNota, setTituloNota] = useState('');
       const [contenidoNota, setContenidoNota] = useState('');
       const [editandoNota, setEditandoNota] = useState(null);
       const [notaExpandida, setNotaExpandida] = useState(null);
+      const [notasVista, setNotasVista] = useState('dia');
+      const [avisoPenal, setAvisoPenal] = useState(0);
       const [floaters, setFloaters] = useState([]);
       const fileRef = useRef(null);
       const importRef = useRef(null);
@@ -160,9 +174,26 @@
 
       // ---- Guardado automático ----
       useEffect(() => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, habitos, diarias, pendientes, notas };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, ultimoDia, habitos, diarias, pendientes, notas };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, habitos, diarias, pendientes, notas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, ultimoDia, habitos, diarias, pendientes, notas]);
+
+      // ---- Al abrir en un día nuevo: penalizar las diarias que no completaste el último día activo ----
+      useEffect(() => {
+        if (ultimoDia && ultimoDia < todayKey && diarias.length > 0) {
+          let dmg = 0;
+          diarias.forEach(d => {
+            const hecha = diariaLog[d.id] && diariaLog[d.id][ultimoDia];
+            if (!hecha) dmg += difDe(d).dano;
+          });
+          if (dmg > 0) {
+            setHp(h => Math.max(1, h - dmg)); // nunca mata por ausencia; deja al menos 1
+            setAvisoPenal(dmg);
+          }
+        }
+        setUltimoDia(todayKey);
+      // eslint-disable-next-line
+      }, []);
 
       // ---- Racha derivada de los días completados ----
       const calcRacha = () => {
@@ -214,28 +245,45 @@
         addFloater('−' + cant + ' HP', '#fb7185');
       };
 
+      // Revierte una recompensa (para deshacer): resta XP (baja de nivel si aplica), oro y contadores del día
+      const quitarRecompensa = (cant, dia) => {
+        const totalActual = (nivel - 1) * 100 + xp;
+        const nuevoTotal = Math.max(0, totalActual - cant);
+        setNivel(Math.floor(nuevoTotal / 100) + 1);
+        setXp(nuevoTotal % 100);
+        setOro(o => Math.max(0, o - Math.floor(cant / 2)));
+        setXpPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) - cant) }));
+        setTareasPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) - 1) }));
+        addFloater('−' + cant + ' XP', '#fb7185');
+      };
+
       // ---- Acciones (sólo sobre el día de hoy) ----
       const countHabito = (id) => (habitLog[id] && habitLog[id][selDia]) || 0;
       const accionarHabito = (id, tipo) => {
         if (!esHoy) return;
+        const h = habitos.find(x => x.id === id);
+        const d = difDe(h);
         if (tipo === 'positivo') {
-          ganarRecompensa(10); curar(3); contarTarea();
+          ganarRecompensa(d.xp); curar(d.cura); contarTarea();
           setHabitLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
-        } else { recibirDano(15); }
+        } else { recibirDano(d.dano); }
       };
 
       const hechoDiaria = (id) => !!(diariaLog[id] && diariaLog[id][selDia]);
       const completarDiaria = (id) => {
         if (!esHoy) return;
+        const dObj = diarias.find(x => x.id === id);
+        const df = difDe(dObj);
         const done = hechoDiaria(id);
         if (!done) {
-          ganarRecompensa(15); curar(4); contarTarea();
+          ganarRecompensa(df.xp); curar(df.cura); contarTarea();
           const nl = { ...diariaLog, [id]: { ...(diariaLog[id] || {}), [todayKey]: true } };
           setDiariaLog(nl);
           if (diarias.length > 0 && diarias.every(d => nl[d.id] && nl[d.id][todayKey])) {
             setDiasCompletados(m => ({ ...m, [todayKey]: true }));
           }
         } else {
+          quitarRecompensa(df.xp, todayKey);
           const cur = { ...(diariaLog[id] || {}) }; delete cur[todayKey];
           setDiariaLog({ ...diariaLog, [id]: cur });
           setDiasCompletados(m => { const c = { ...m }; delete c[todayKey]; return c; });
@@ -246,7 +294,8 @@
         if (!esHoy) return;
         const p = pendientes.find(x => x.id === id);
         if (!p || p.completado) return;
-        ganarRecompensa(20); curar(6); contarTarea();
+        const df = difDe(p);
+        ganarRecompensa(df.xp); curar(df.cura); contarTarea();
         setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: true, completadoFecha: todayKey } : x));
       };
 
@@ -255,16 +304,8 @@
         if (!esHoy) return;
         const p = pendientes.find(x => x.id === id);
         if (!p || !p.completado) return;
-        const dia = p.completadoFecha || todayKey;
-        const totalActual = (nivel - 1) * 100 + xp;
-        const nuevoTotal = Math.max(0, totalActual - 20);
-        setNivel(Math.floor(nuevoTotal / 100) + 1);
-        setXp(nuevoTotal % 100);
-        setOro(o => Math.max(0, o - 10));
-        setXpPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) - 20) }));
-        setTareasPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) - 1) }));
+        quitarRecompensa(difDe(p).xp, p.completadoFecha || todayKey);
         setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: false, completadoFecha: null } : x));
-        addFloater('−20 XP', '#fb7185');
       };
 
       // ---- Alta de elementos (se registran en HOY) ----
@@ -283,7 +324,7 @@
           setTituloNota(''); setContenidoNota(''); return;
         }
         if (!nuevoTexto.trim()) return;
-        const base = { id: Date.now(), texto: nuevoTexto };
+        const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif };
         if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
         if (tab === 'diarias') setDiarias([...diarias, base]);
         if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey }]);
@@ -383,15 +424,15 @@
 
         heading('Habitos (' + habitos.length + ')');
         if (!habitos.length) line('- Sin habitos.');
-        else habitos.forEach(h => line('- ' + h.texto + '  (' + h.tipo + ')'));
+        else habitos.forEach(h => line('- ' + h.texto + '  (' + h.tipo + ' · ' + difDe(h).label + ')'));
 
         heading('Tareas diarias (' + diarias.length + ')');
         if (!diarias.length) line('- Sin tareas diarias.');
-        else diarias.forEach(d => line('- ' + d.texto));
+        else diarias.forEach(d => line('- ' + d.texto + '  (' + difDe(d).label + ')'));
 
         heading('Tareas pendientes (' + activas.length + ')');
         if (!activas.length) line('- Ninguna pendiente.');
-        else activas.forEach(p => line('- ' + p.texto));
+        else activas.forEach(p => line('- ' + p.texto + '  (' + difDe(p).label + ')'));
 
         heading('Tareas completadas (' + hechas.length + ')');
         if (!hechas.length) line('- Ninguna todavia.');
@@ -418,7 +459,7 @@
 
       // ---- Derivados de la vista ----
       const card = "bg-[#101019] border border-[rgba(129,120,241,0.16)] rounded-[10px]";
-      const showInput = esHoy && ['habitos', 'diarias', 'pendientes', 'notas'].includes(tab);
+      const showInput = esHoy && (['habitos', 'diarias', 'pendientes'].includes(tab) || (tab === 'notas' && notasVista === 'dia'));
       const labelMap = { habitos: 'hábitos', diarias: 'diarias', pendientes: 'tareas' };
       const TIPOS = [
         { id: 'positivo', label: '+ Positivo', c: '#a78bfa' },
@@ -426,10 +467,15 @@
         { id: 'ambos', label: '± Ambos', c: '#8b93a3' },
       ];
       const notasDia = notas.filter(n => n.fecha === selDia);
+      const mesSel = selDia.slice(0, 7);
+      const notasMes = notas.filter(n => (n.fecha || '').slice(0, 7) === mesSel).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+      const nombreMes = (() => { const s = parseKey(mesSel + '-01').toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }); return s.charAt(0).toUpperCase() + s.slice(1); })();
+      const notasLista = notasVista === 'mes' ? notasMes : notasDia;
       const pendientesActivas = pendientes.filter(p => !p.completado);
       const archivoDia = pendientes.filter(p => p.completado && p.completadoFecha === selDia);
       const xpDia = xpPorDia[selDia] || 0;
       const tareasDia = tareasPorDia[selDia] || 0;
+      const TagDif = ({ it }) => { const d = difDe(it); return <span className="text-[9px] font-bold" style={{ color: d.c }}>● {d.label}</span>; };
 
       return (
         <div className="max-w-md mx-auto h-screen flex flex-col bg-[#08080c] text-[#e7e9ee] relative overflow-hidden select-none antialiased">
@@ -522,8 +568,16 @@
             </div>
           )}
 
+          {/* ===== AVISO PENALIZACIÓN POR DIARIAS SIN CUMPLIR ===== */}
+          {avisoPenal > 0 && (
+            <div className="flex items-center justify-between px-4 py-[8px] flex-shrink-0" style={{ background: '#2a1620', borderBottom: '1px solid rgba(244,63,94,0.3)' }}>
+              <span className="text-[11px] font-bold text-[#fb7185]">−{avisoPenal} de vida por diarias que no completaste</span>
+              <button onClick={() => setAvisoPenal(0)} className="text-[#fb7185] text-xs font-bold">✕</button>
+            </div>
+          )}
+
           {/* ===== MAIN ===== */}
-          <main className={"flex-1 overflow-y-auto hide-scrollbar p-4 " + (showInput ? (tab === 'habitos' ? 'pb-40' : (tab === 'notas' ? 'pb-40' : 'pb-28')) : 'pb-6')}>
+          <main className={"flex-1 overflow-y-auto hide-scrollbar p-4 " + (showInput ? (tab === 'habitos' ? 'pb-44' : (tab === 'notas' ? 'pb-40' : 'pb-36')) : 'pb-6')}>
 
             {tab === 'dashboard' && (
               <div className="flex flex-col gap-[14px] anim-fade">
@@ -594,7 +648,10 @@
                       <div className="flex items-center justify-between gap-[10px]">
                         <div className="flex flex-col gap-1 min-w-0 flex-1">
                           <span className="text-sm font-semibold leading-tight" style={{ color: hecho ? '#f3f2fb' : '#cdd0d8' }}>{h.texto}</span>
-                          {hecho && <span className="text-[10px] font-bold text-[#a99ff5]">✨ {esHoy ? 'Registrado hoy' : 'Registrado'} · {veces}</span>}
+                          <div className="flex items-center gap-2">
+                            <TagDif it={h} />
+                            {hecho && <span className="text-[10px] font-bold text-[#a99ff5]">✨ {esHoy ? 'Registrado hoy' : 'Registrado'} · {veces}</span>}
+                          </div>
                         </div>
                         <div className="flex items-center gap-[7px] flex-shrink-0">
                           {(h.tipo === 'positivo' || h.tipo === 'ambos') && (
@@ -623,7 +680,10 @@
                         <button onClick={() => completarDiaria(d.id)} disabled={!esHoy} className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center flex-shrink-0 transition-all active:scale-90" style={{ border: done ? 'none' : '2px solid #565d6c', background: done ? ACCENT : 'transparent' }}>
                           {done && <IconTick />}
                         </button>
-                        <span className="text-sm font-medium truncate" style={{ color: done ? '#6b7280' : '#d3d6dd', textDecoration: done ? 'line-through' : 'none' }}>{d.texto}</span>
+                        <div className="flex flex-col gap-[3px] min-w-0">
+                          <span className="text-sm font-medium truncate" style={{ color: done ? '#6b7280' : '#d3d6dd', textDecoration: done ? 'line-through' : 'none' }}>{d.texto}</span>
+                          <TagDif it={d} />
+                        </div>
                       </div>
                       {esHoy && <button onClick={() => eliminarItem(d.id, 'diarias')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>}
                     </div>
@@ -639,7 +699,10 @@
                   <div key={p.id} className={card + " p-[14px] flex items-center justify-between gap-[10px]"}>
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <button onClick={() => completarPendiente(p.id)} className="w-[22px] h-[22px] rounded-full border-2 border-[#565d6c] flex-shrink-0 transition-all active:scale-90 hover:border-emerald-400"></button>
-                      <span className="text-sm font-medium text-[#d3d6dd] truncate">{p.texto}</span>
+                      <div className="flex flex-col gap-[3px] min-w-0">
+                        <span className="text-sm font-medium text-[#d3d6dd] truncate">{p.texto}</span>
+                        <TagDif it={p} />
+                      </div>
                     </div>
                     <button onClick={() => eliminarItem(p.id, 'pendientes')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>
                   </div>
@@ -682,26 +745,47 @@
 
             {tab === 'notas' && (
               <div className="flex flex-col gap-[10px] anim-fade">
-                {notasDia.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">{esHoy ? 'Escribe tu primera nota del día abajo.' : 'Sin notas este día.'}</div>}
-                {notasDia.map(n => (
-                  <div key={n.id} className={card + " p-[14px]"}>
-                    <div className="flex justify-between items-start gap-[10px]">
-                      <div onClick={() => setNotaExpandida(n)} className="min-w-0 flex-1 cursor-pointer">
-                        <div className="flex items-center gap-2 mb-[5px]">
-                          <h3 className="text-sm font-bold text-[#f2f3f6] m-0 truncate">{n.titulo}</h3>
-                          <span className="text-[9px] font-bold text-[#5b6270] uppercase flex-shrink-0">{etiquetaCorta(n.fecha)}</span>
-                        </div>
-                        <p className="text-xs text-[#8b93a3] leading-relaxed m-0" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.contenido}</p>
-                      </div>
-                      {esHoy && (
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button onClick={() => editarNota(n)} className="text-[#6b7280] hover:text-[#b6adf7] p-1"><IconEdit /></button>
-                          <button onClick={() => eliminarItem(n.id, 'notas')} className="text-[#4b5160] text-xs font-bold p-1">✕</button>
-                        </div>
-                      )}
-                    </div>
+                <div className="flex gap-[6px]">
+                  {[{ id: 'dia', label: 'Por día' }, { id: 'mes', label: 'Del mes' }].map(v => {
+                    const sel = notasVista === v.id;
+                    return (
+                      <button key={v.id} onClick={() => setNotasVista(v.id)} className="flex-1 py-[8px] rounded-lg text-[12px] font-bold transition-all" style={{
+                        background: sel ? 'rgba(124,115,240,0.16)' : 'rgba(255,255,255,0.04)',
+                        color: sel ? '#b6adf7' : '#6b7280',
+                        border: sel ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                      }}>{v.label}</button>
+                    );
+                  })}
+                </div>
+                {notasVista === 'mes' && (
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-[12px] font-bold text-[#d3d6dd]">{nombreMes}</span>
+                    <span className="text-[10px] font-bold text-[#5b6270]">{notasMes.length} nota{notasMes.length === 1 ? '' : 's'}</span>
                   </div>
-                ))}
+                )}
+                {notasLista.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">{notasVista === 'mes' ? 'Sin notas este mes.' : (esHoy ? 'Escribe tu primera nota del día abajo.' : 'Sin notas este día.')}</div>}
+                {notasLista.map(n => {
+                  const editable = esHoy && n.fecha === todayKey;
+                  return (
+                    <div key={n.id} className={card + " p-[14px]"}>
+                      <div className="flex justify-between items-start gap-[10px]">
+                        <div onClick={() => setNotaExpandida(n)} className="min-w-0 flex-1 cursor-pointer">
+                          <div className="flex items-center gap-2 mb-[5px]">
+                            <h3 className="text-sm font-bold text-[#f2f3f6] m-0 truncate">{n.titulo}</h3>
+                            <span className="text-[9px] font-bold text-[#5b6270] uppercase flex-shrink-0">{etiquetaCorta(n.fecha)}</span>
+                          </div>
+                          <p className="text-xs text-[#8b93a3] leading-relaxed m-0" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{n.contenido}</p>
+                        </div>
+                        {editable && (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button onClick={() => editarNota(n)} className="text-[#6b7280] hover:text-[#b6adf7] p-1"><IconEdit /></button>
+                            <button onClick={() => eliminarItem(n.id, 'notas')} className="text-[#4b5160] text-xs font-bold p-1">✕</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </main>
@@ -717,7 +801,7 @@
           {showInput && (
             <div className="absolute left-0 right-0 bottom-0 bg-[rgba(10,10,15,0.94)] backdrop-blur-md border-t border-white/[0.07] p-[14px] z-[25]">
               {tab === 'habitos' && (
-                <div className="flex gap-[6px] mb-[10px]">
+                <div className="flex gap-[6px] mb-[8px]">
                   {TIPOS.map(t => (
                     <button key={t.id} onClick={() => setNuevoTipo(t.id)} className="flex-1 py-[7px] rounded-lg text-[11px] font-bold transition-all" style={{
                       background: nuevoTipo === t.id ? 'rgba(124,115,240,0.18)' : 'rgba(255,255,255,0.04)',
@@ -725,6 +809,20 @@
                       border: nuevoTipo === t.id ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
                     }}>{t.label}</button>
                   ))}
+                </div>
+              )}
+              {tab !== 'notas' && (
+                <div className="flex gap-[5px] mb-[10px]">
+                  {DIF_ORDEN.map(k => {
+                    const v = DIF[k]; const sel = nuevaDif === k;
+                    return (
+                      <button key={k} onClick={() => setNuevaDif(k)} className="flex-1 py-[7px] rounded-lg text-[10px] font-bold transition-all" style={{
+                        background: sel ? 'rgba(124,115,240,0.16)' : 'rgba(255,255,255,0.04)',
+                        color: sel ? v.c : '#6b7280',
+                        border: sel ? '1px solid ' + v.c + '77' : '1px solid rgba(255,255,255,0.06)'
+                      }}>{v.label}</button>
+                    );
+                  })}
                 </div>
               )}
               {tab !== 'notas' ? (
