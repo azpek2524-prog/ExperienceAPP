@@ -89,6 +89,8 @@
     const IconChevron = ({ dir = 'left' }) => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: dir === 'right' ? 'rotate(180deg)' : 'none' }}><polyline points="15 18 9 12 15 6"></polyline></svg>;
     const IconLock = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>;
     const IconUndo = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9l5-5"></path><path d="M4 9h11a5 5 0 0 1 5 5v0a5 5 0 0 1-5 5h-4"></path></svg>;
+    const IconGift = () => <Ico><polyline points="20 12 20 22 4 22 4 12"></polyline><rect x="2" y="7" width="20" height="5"></rect><line x1="12" y1="22" x2="12" y2="7"></line><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path></Ico>;
+    const IconCoin = ({ size = 13 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#f5b23e" strokeWidth="2"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3.5"></circle></svg>;
 
     // ---------- Barra segmentada (HUD) ----------
     const SegBar = ({ pct, c1, c2 }) => {
@@ -111,6 +113,7 @@
       { id: 'diarias', label: 'Diarias', Icon: IconSun },
       { id: 'pendientes', label: 'Tareas', Icon: IconCheck },
       { id: 'notas', label: 'Notas', Icon: IconNote },
+      { id: 'premios', label: 'Premios', Icon: IconGift },
       { id: 'archivo', label: 'Archivo', Icon: IconArchive },
     ];
 
@@ -185,6 +188,12 @@
       // Tareas puntuales: fecha = día de creación, completadoFecha = día en que se terminó
       const [pendientes, setPendientes] = useState(G.pendientes ?? []);
       const [notas, setNotas] = useState(G.notas ?? []);
+      // Premios canjeables con oro (editables por el usuario)
+      const [recompensas, setRecompensas] = useState(G.recompensas ?? [
+        { id: 1, texto: '🎬 Ver una película', costo: 100, veces: 0 },
+        { id: 2, texto: '🍕 Pedir comida', costo: 200, veces: 0 },
+        { id: 3, texto: '🎮 Tarde de juego', costo: 350, veces: 0 },
+      ]);
 
       // ---- Estado de UI ----
       const [tab, setTab] = useState('dashboard');
@@ -197,6 +206,9 @@
       const [editandoNota, setEditandoNota] = useState(null);
       const [notaExpandida, setNotaExpandida] = useState(null);
       const [notasVista, setNotasVista] = useState('dia');
+      const [nuevaRecTexto, setNuevaRecTexto] = useState('');
+      const [nuevaRecCosto, setNuevaRecCosto] = useState('');
+      const [editandoRec, setEditandoRec] = useState(null);
       const [ajustesAbierto, setAjustesAbierto] = useState(false);
       const [avisoPenal, setAvisoPenal] = useState(0);
       const [floaters, setFloaters] = useState([]);
@@ -208,9 +220,9 @@
 
       // ---- Guardado automático ----
       useEffect(() => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
 
       // ---- Al abrir en un día nuevo: penalizar las diarias que no completaste el último día activo ----
       useEffect(() => {
@@ -427,6 +439,32 @@
 
       const editarNota = (n) => { setEditandoNota(n.id); setTituloNota(n.titulo); setContenidoNota(n.contenido); setTab('notas'); };
 
+      // ---- Premios / recompensas ----
+      const guardarRecompensa = (e) => {
+        e.preventDefault();
+        const t = nuevaRecTexto.trim();
+        const c = Math.max(0, parseInt(nuevaRecCosto, 10) || 0);
+        if (!t || c <= 0) return;
+        if (editandoRec) {
+          setRecompensas(recompensas.map(x => x.id === editandoRec ? { ...x, texto: t, costo: c } : x));
+          setEditandoRec(null);
+        } else {
+          setRecompensas([...recompensas, { id: Date.now(), texto: t, costo: c, veces: 0 }]);
+        }
+        setNuevaRecTexto(''); setNuevaRecCosto('');
+      };
+      const editarRecompensa = (r) => { setEditandoRec(r.id); setNuevaRecTexto(r.texto); setNuevaRecCosto(String(r.costo)); };
+      const eliminarRecompensa = (id) => { setRecompensas(recompensas.filter(x => x.id !== id)); if (editandoRec === id) { setEditandoRec(null); setNuevaRecTexto(''); setNuevaRecCosto(''); } };
+      const canjear = (id) => {
+        const r = recompensas.find(x => x.id === id);
+        if (!r) return;
+        if (oro < r.costo) { addFloater('Te falta oro', '#fb7185'); return; }
+        if (!window.confirm('¿Canjear "' + r.texto + '" por ' + r.costo + ' de oro?')) return;
+        setOro(o => Math.max(0, o - r.costo));
+        setRecompensas(recompensas.map(x => x.id === id ? { ...x, veces: (x.veces || 0) + 1 } : x));
+        addFloater('−' + r.costo + ' oro', '#f5b23e');
+      };
+
       const eliminarItem = (id, lista) => {
         if (!esHoy) return;
         if (lista === 'habitos') setHabitos(habitos.filter(i => i.id !== id));
@@ -532,6 +570,10 @@
         if (!hechas.length) line('- Ninguna todavia.');
         else hechas.forEach(p => line('- ' + p.texto + (p.completadoFecha ? '  (' + etiquetaCorta(p.completadoFecha) + ')' : '')));
 
+        heading('Premios (' + recompensas.length + ')');
+        if (!recompensas.length) line('- Sin premios.');
+        else recompensas.forEach(r => line('- ' + r.texto + '  (' + r.costo + ' oro' + (r.veces ? ' · canjeado ' + r.veces + 'x' : '') + ')'));
+
         heading('Notas (' + notas.length + ')');
         if (!notas.length) line('- Sin notas.');
         else notas.forEach(n => {
@@ -553,7 +595,7 @@
 
       // ---- Derivados de la vista ----
       const card = "bg-[#101019] border border-[rgba(129,120,241,0.16)] rounded-[10px]";
-      const showInput = esHoy && (['habitos', 'diarias', 'pendientes'].includes(tab) || (tab === 'notas' && notasVista === 'dia'));
+      const showInput = (esHoy && (['habitos', 'diarias', 'pendientes'].includes(tab) || (tab === 'notas' && notasVista === 'dia'))) || tab === 'premios';
       const labelMap = { habitos: 'hábitos', diarias: 'diarias', pendientes: 'tareas' };
       const TIPOS = [
         { id: 'positivo', label: '+ Positivo', c: '#a78bfa' },
@@ -661,7 +703,7 @@
           </div>
 
           {/* ===== AVISO SOLO LECTURA ===== */}
-          {!esHoy && (
+          {!esHoy && tab !== 'premios' && (
             <div className="flex items-center justify-center gap-[6px] py-[6px] bg-[#12101c] border-b border-white/[0.05] flex-shrink-0 text-[#8f86c9]">
               <IconLock /><span className="text-[10px] font-bold tracking-[0.02em]">Viendo {etiquetaCorta(selDia)} · sólo lectura</span>
             </div>
@@ -911,6 +953,35 @@
                 })}
               </div>
             )}
+
+            {tab === 'premios' && (
+              <div className="flex flex-col gap-[10px] anim-fade">
+                <div className={card + " p-[14px] flex items-center justify-between"}>
+                  <span className="text-[11px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">Tu oro disponible</span>
+                  <span className="flex items-center gap-[6px] mono text-[18px] font-extrabold text-[#f5b23e]"><IconCoin size={16} /> {oro}</span>
+                </div>
+                {recompensas.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">Crea tu primer premio abajo.</div>}
+                {recompensas.map(r => {
+                  const alcanza = oro >= r.costo;
+                  return (
+                    <div key={r.id} className={card + " p-[14px] flex items-center justify-between gap-[10px]"}>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-[#e7e9ee] leading-tight">{r.texto}</div>
+                        <div className="flex items-center gap-2 mt-[4px]">
+                          <span className="flex items-center gap-[4px] text-[11px] font-bold text-[#f5b23e]"><IconCoin size={12} /> {r.costo}</span>
+                          {r.veces > 0 && <span className="text-[10px] text-[#5b6270]">· canjeado {r.veces}×</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button onClick={() => editarRecompensa(r)} className="text-[#6b7280] hover:text-[#b6adf7] p-1"><IconEdit /></button>
+                        <button onClick={() => eliminarRecompensa(r.id)} className="text-[#4b5160] text-xs font-bold p-1">✕</button>
+                        <button onClick={() => canjear(r.id)} disabled={!alcanza} className="px-[13px] py-[8px] rounded-lg text-[12px] font-extrabold transition-all active:scale-95" style={{ background: alcanza ? 'linear-gradient(135deg,#f5c451,#f5972e)' : 'rgba(255,255,255,0.05)', color: alcanza ? '#231600' : '#5b6270', border: alcanza ? 'none' : '1px solid rgba(255,255,255,0.08)', boxShadow: alcanza ? '0 3px 10px rgba(245,150,46,0.3)' : 'none' }}>Canjear</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </main>
 
           {/* ===== FEEDBACK FLOTANTE ===== */}
@@ -934,7 +1005,7 @@
                   ))}
                 </div>
               )}
-              {tab !== 'notas' && (
+              {['habitos', 'diarias', 'pendientes'].includes(tab) && (
                 <div className="flex gap-[5px] mb-[10px]">
                   {DIF_ORDEN.map(k => {
                     const v = DIF[k]; const sel = nuevaDif === k;
@@ -948,7 +1019,16 @@
                   })}
                 </div>
               )}
-              {tab !== 'notas' ? (
+              {tab === 'premios' ? (
+                <form onSubmit={guardarRecompensa} className="flex flex-col gap-2">
+                  {editandoRec && <div className="flex justify-between items-center text-[10px] font-bold text-[#f5b23e] px-1"><span>✏️ Editando premio</span><button type="button" onClick={() => { setEditandoRec(null); setNuevaRecTexto(''); setNuevaRecCosto(''); }} className="text-[#6b7280]">Cancelar</button></div>}
+                  <div className="flex gap-2">
+                    <input value={nuevaRecTexto} onChange={e => setNuevaRecTexto(e.target.value)} placeholder="Premio (ej. 🎬 Ver una película)" className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#f5b23e]" />
+                    <input value={nuevaRecCosto} onChange={e => setNuevaRecCosto(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" placeholder="Oro" className="mono w-[64px] bg-[#0c0c14] border border-white/10 rounded-lg px-[10px] py-3 text-[13px] text-[#f5b23e] text-center outline-none focus:border-[#f5b23e]" />
+                    <button type="submit" className="w-12 rounded-lg text-[#231600] text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#f5c451,#f5972e)', boxShadow: '0 4px 14px rgba(245,150,46,0.4)' }}>{editandoRec ? '✓' : '+'}</button>
+                  </div>
+                </form>
+              ) : tab !== 'notas' ? (
                 <form onSubmit={agregarItem} className="flex gap-2">
                   <input value={nuevoTexto} onChange={e => setNuevoTexto(e.target.value)} placeholder={`Nueva entrada en ${labelMap[tab] || tab}...`} className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#7c73f0]" />
                   <button type="submit" className="w-12 rounded-lg text-white text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>+</button>
