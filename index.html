@@ -166,6 +166,7 @@
       const [habitNegLog, setHabitNegLog] = useState(G.habitNegLog ?? {}); // { habitId: { dia: conteo } }  (negativos)
       const [diariaLog, setDiariaLog] = useState(G.diariaLog ?? {});       // { diariaId: { dia: true } }
       const [ultimoDia, setUltimoDia] = useState(G.ultimoDia ?? todayKey); // última vez que se abrió (para penalizar diarias sin cumplir)
+      const [diasActivos, setDiasActivos] = useState(G.diasActivos ?? {}); // { dia: true } días que abriste la app (para la racha real)
 
       // ---- Balance ajustable ----
       const [modoBalance, setModoBalance] = useState(G.modoBalance ?? 'normal');
@@ -201,14 +202,15 @@
       const [floaters, setFloaters] = useState([]);
       const fileRef = useRef(null);
       const importRef = useRef(null);
+      const stripRef = useRef(null);
 
       const esHoy = selDia === todayKey;
 
       // ---- Guardado automático ----
       useEffect(() => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas]);
 
       // ---- Al abrir en un día nuevo: penalizar las diarias que no completaste el último día activo ----
       useEffect(() => {
@@ -225,14 +227,15 @@
           }
         }
         setUltimoDia(todayKey);
+        setDiasActivos(m => (m[todayKey] ? m : { ...m, [todayKey]: true })); // registra que hoy usaste la app
       // eslint-disable-next-line
       }, []);
 
-      // ---- Racha derivada de los días completados ----
+      // ---- Racha real: días seguidos que has usado la app (se corta al saltarte un día) ----
       const calcRacha = () => {
         let r = 0; const d = new Date();
-        if (!diasCompletados[dk(d)]) d.setDate(d.getDate() - 1);
-        while (diasCompletados[dk(d)]) { r++; d.setDate(d.getDate() - 1); }
+        const activos = { ...diasActivos, [todayKey]: true }; // hoy cuenta porque la estás usando
+        while (activos[dk(d)]) { r++; d.setDate(d.getDate() - 1); }
         return r;
       };
       const racha = calcRacha();
@@ -252,6 +255,33 @@
         return r;
       };
       const semana = ultimos7();
+
+      // ---- Tira de días deslizable: desde el primer día con datos (o 30 días atrás) hasta hoy ----
+      const construirDiasStrip = () => {
+        let min = todayKey;
+        const push = k => { if (k && k < min) min = k; };
+        Object.keys(xpPorDia).forEach(push);
+        Object.keys(diasCompletados).forEach(push);
+        Object.keys(diasActivos).forEach(push);
+        Object.values(habitLog).forEach(o => Object.keys(o).forEach(push));
+        Object.values(habitNegLog).forEach(o => Object.keys(o).forEach(push));
+        Object.values(diariaLog).forEach(o => Object.keys(o).forEach(push));
+        notas.forEach(n => push(n.fecha));
+        pendientes.forEach(p => { push(p.fecha); push(p.completadoFecha); });
+        const hace30 = (() => { const d = new Date(); d.setDate(d.getDate() - 29); return dk(d); })();
+        if (hace30 < min) min = hace30;
+        const arr = []; let d = parseKey(min); let guard = 0;
+        while (dk(d) <= todayKey && guard < 800) {
+          const key = dk(d);
+          arr.push({ id: key, numero: d.getDate(), nombre: NOMBRES_DIA[d.getDay()], completado: !!diasCompletados[key], activo: !!diasActivos[key] || key === todayKey, isToday: key === todayKey, isSel: key === selDia });
+          d.setDate(d.getDate() + 1); guard++;
+        }
+        return arr;
+      };
+      const diasStrip = construirDiasStrip();
+
+      // Al abrir, desliza la tira hasta hoy (extremo derecho)
+      useEffect(() => { const el = stripRef.current; if (el) el.scrollLeft = el.scrollWidth; }, []);
 
       // ---- feedback flotante ----
       const addFloater = (text, color) => {
@@ -588,9 +618,9 @@
                 </div>
                 <div className="flex items-center gap-[5px] text-xs font-bold text-[#f59e42]"><span className="text-[13px]">🔥</span> {racha} días</div>
               </div>
-              <div className="grid grid-cols-7 gap-[5px]">
-                {semana.map(d => (
-                  <button key={d.id} onClick={() => setSelDia(d.id)} className="flex flex-col items-center gap-1 focus:outline-none">
+              <div ref={stripRef} className="flex gap-[6px] overflow-x-auto hide-scrollbar pb-[2px]" style={{ scrollBehavior: 'smooth' }}>
+                {diasStrip.map(d => (
+                  <button key={d.id} onClick={() => setSelDia(d.id)} className="flex flex-col items-center gap-1 flex-shrink-0 w-[34px] focus:outline-none">
                     <span className="text-[8px] font-extrabold tracking-[0.04em] uppercase" style={{ color: d.isSel ? '#b6adf7' : '#5b6270' }}>{d.nombre}</span>
                     <div className="mono w-[30px] h-[30px] rounded-[6px] flex items-center justify-center text-[11px] font-bold transition-all duration-200" style={{
                       background: d.completado ? 'rgba(16,185,129,0.16)' : (d.isToday ? 'rgba(124,115,240,0.14)' : 'rgba(255,255,255,0.03)'),
@@ -598,6 +628,7 @@
                       border: d.isSel ? '1.5px solid ' + ACCENT : (d.completado ? '1px solid rgba(16,185,129,0.5)' : (d.isToday ? '1px solid rgba(124,115,240,0.6)' : '1px solid rgba(255,255,255,0.06)')),
                       boxShadow: d.isSel ? '0 0 10px rgba(124,115,240,0.4)' : 'none'
                     }}>{d.numero}</div>
+                    <span className="w-[5px] h-[5px] rounded-full" style={{ background: d.activo ? '#f59e42' : 'transparent', boxShadow: d.activo ? '0 0 5px #f59e42' : 'none' }}></span>
                   </button>
                 ))}
               </div>
