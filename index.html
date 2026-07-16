@@ -162,7 +162,8 @@
       const [xpPorDia, setXpPorDia] = useState(G.xpPorDia ?? {});          // { dia: xp ganada }
       const [tareasPorDia, setTareasPorDia] = useState(G.tareasPorDia ?? {}); // { dia: nº acciones }
       const [diasCompletados, setDiasCompletados] = useState(G.diasCompletados ?? {}); // { dia: true }
-      const [habitLog, setHabitLog] = useState(G.habitLog ?? {});          // { habitId: { dia: conteo } }
+      const [habitLog, setHabitLog] = useState(G.habitLog ?? {});          // { habitId: { dia: conteo } }  (positivos)
+      const [habitNegLog, setHabitNegLog] = useState(G.habitNegLog ?? {}); // { habitId: { dia: conteo } }  (negativos)
       const [diariaLog, setDiariaLog] = useState(G.diariaLog ?? {});       // { diariaId: { dia: true } }
       const [ultimoDia, setUltimoDia] = useState(G.ultimoDia ?? todayKey); // última vez que se abrió (para penalizar diarias sin cumplir)
 
@@ -205,9 +206,9 @@
 
       // ---- Guardado automático ----
       useEffect(() => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas]);
 
       // ---- Al abrir en un día nuevo: penalizar las diarias que no completaste el último día activo ----
       useEffect(() => {
@@ -300,6 +301,7 @@
 
       // ---- Acciones (sólo sobre el día de hoy) ----
       const countHabito = (id) => (habitLog[id] && habitLog[id][selDia]) || 0;
+      const countHabitoNeg = (id) => (habitNegLog[id] && habitNegLog[id][selDia]) || 0;
       const accionarHabito = (id, tipo) => {
         if (!esHoy) return;
         const h = habitos.find(x => x.id === id);
@@ -307,7 +309,10 @@
         if (tipo === 'positivo') {
           ganarRecompensa(v.xp); curar(v.cura); contarTarea();
           setHabitLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
-        } else { recibirDano(v.dano); }
+        } else {
+          recibirDano(v.dano);
+          setHabitNegLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
+        }
       };
 
       const hechoDiaria = (id) => !!(diariaLog[id] && diariaLog[id][selDia]);
@@ -694,27 +699,30 @@
                 {habitos.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">Añade tu primer hábito abajo.</div>}
                 {habitos.map(h => {
                   const veces = countHabito(h.id);
-                  const hecho = veces > 0;
+                  const vecesNeg = countHabitoNeg(h.id);
+                  const hechoPos = veces > 0;
+                  const hechoNeg = vecesNeg > 0;
+                  const marcado = hechoPos || hechoNeg;
+                  const bg = hechoNeg ? '#241320' : (hechoPos ? '#161433' : '#101019');
+                  const borde = hechoNeg ? '1px solid rgba(244,63,94,0.5)' : (hechoPos ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(129,120,241,0.16)');
+                  const glow = hechoNeg ? '0 0 18px rgba(244,63,94,0.15)' : (hechoPos ? '0 0 18px rgba(124,115,240,0.15)' : 'none');
                   return (
-                    <div key={h.id} className="p-[14px] rounded-[10px] transition-all" style={{
-                      background: hecho ? '#161433' : '#101019',
-                      border: hecho ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(129,120,241,0.16)',
-                      boxShadow: hecho ? '0 0 18px rgba(124,115,240,0.15)' : 'none'
-                    }}>
+                    <div key={h.id} className="p-[14px] rounded-[10px] transition-all" style={{ background: bg, border: borde, boxShadow: glow }}>
                       <div className="flex items-center justify-between gap-[10px]">
                         <div className="flex flex-col gap-1 min-w-0 flex-1">
-                          <span className="text-sm font-semibold leading-tight" style={{ color: hecho ? '#f3f2fb' : '#cdd0d8' }}>{h.texto}</span>
-                          <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold leading-tight" style={{ color: marcado ? '#f3f2fb' : '#cdd0d8' }}>{h.texto}</span>
+                          <div className="flex items-center gap-2 flex-wrap">
                             <TagDif it={h} />
-                            {hecho && <span className="text-[10px] font-bold text-[#a99ff5]">✨ {esHoy ? 'Registrado hoy' : 'Registrado'} · {veces}</span>}
+                            {hechoPos && <span className="text-[10px] font-bold text-[#a99ff5]">✨ {esHoy ? 'Registrado hoy' : 'Registrado'} · {veces}</span>}
+                            {hechoNeg && <span className="text-[10px] font-bold text-[#fb7185]">⚠️ {esHoy ? 'Recaída hoy' : 'Recaída'} · {vecesNeg}</span>}
                           </div>
                         </div>
                         <div className="flex items-center gap-[7px] flex-shrink-0">
                           {(h.tipo === 'positivo' || h.tipo === 'ambos') && (
-                            <button onClick={() => accionarHabito(h.id, 'positivo')} disabled={!esHoy} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-xl font-bold transition-all active:scale-90" style={{ background: hecho ? 'linear-gradient(135deg,#7c73f0,#a855f7)' : 'rgba(124,115,240,0.16)', color: hecho ? '#fff' : '#b6adf7', opacity: esHoy ? 1 : 0.45, boxShadow: hecho ? '0 4px 12px rgba(124,115,240,0.35)' : 'none' }}>+</button>
+                            <button onClick={() => accionarHabito(h.id, 'positivo')} disabled={!esHoy} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-xl font-bold transition-all active:scale-90" style={{ background: hechoPos ? 'linear-gradient(135deg,#7c73f0,#a855f7)' : 'rgba(124,115,240,0.16)', color: hechoPos ? '#fff' : '#b6adf7', opacity: esHoy ? 1 : 0.45, boxShadow: hechoPos ? '0 4px 12px rgba(124,115,240,0.35)' : 'none' }}>+</button>
                           )}
                           {(h.tipo === 'negativo' || h.tipo === 'ambos') && (
-                            <button onClick={() => accionarHabito(h.id, 'negativo')} disabled={!esHoy} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-2xl font-bold bg-[rgba(244,63,94,0.14)] text-[#fb7185] transition-all active:scale-90" style={{ opacity: esHoy ? 1 : 0.45 }}>−</button>
+                            <button onClick={() => accionarHabito(h.id, 'negativo')} disabled={!esHoy} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-2xl font-bold transition-all active:scale-90" style={{ background: hechoNeg ? 'linear-gradient(135deg,#f43f5e,#fb7185)' : 'rgba(244,63,94,0.14)', color: hechoNeg ? '#fff' : '#fb7185', opacity: esHoy ? 1 : 0.45, boxShadow: hechoNeg ? '0 4px 12px rgba(244,63,94,0.35)' : 'none' }}>−</button>
                           )}
                           {esHoy && <button onClick={() => eliminarItem(h.id, 'habitos')} className="w-[30px] h-[38px] text-[#4b5160] text-xs font-bold">✕</button>}
                         </div>
