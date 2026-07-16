@@ -315,6 +315,24 @@
         }
       };
 
+      const bajarConteo = (mapa, id) => { const cur = { ...(mapa[id] || {}) }; const n = (cur[todayKey] || 0) - 1; if (n <= 0) delete cur[todayKey]; else cur[todayKey] = n; return { ...mapa, [id]: cur }; };
+      // Deshacer un "+" puesto por error: resta la XP ganada y quita la curación
+      const deshacerHabitoPos = (id) => {
+        if (!esHoy || countHabito(id) <= 0) return;
+        const v = valDe(habitos.find(x => x.id === id));
+        quitarRecompensa(v.xp, todayKey);
+        setHp(x => Math.max(1, x - v.cura));
+        setHabitLog(l => bajarConteo(l, id));
+      };
+      // Deshacer un "−" puesto por error: devuelve la vida perdida
+      const deshacerHabitoNeg = (id) => {
+        if (!esHoy || countHabitoNeg(id) <= 0) return;
+        const v = valDe(habitos.find(x => x.id === id));
+        setHp(x => Math.min(100, x + v.dano));
+        addFloater('+' + v.dano + ' HP', '#34d399');
+        setHabitNegLog(l => bajarConteo(l, id));
+      };
+
       const hechoDiaria = (id) => !!(diariaLog[id] && diariaLog[id][selDia]);
       const completarDiaria = (id) => {
         if (!esHoy) return;
@@ -713,8 +731,18 @@
                           <span className="text-sm font-semibold leading-tight" style={{ color: marcado ? '#f3f2fb' : '#cdd0d8' }}>{h.texto}</span>
                           <div className="flex items-center gap-2 flex-wrap">
                             <TagDif it={h} />
-                            {hechoPos && <span className="text-[10px] font-bold text-[#a99ff5]">✨ {esHoy ? 'Registrado hoy' : 'Registrado'} · {veces}</span>}
-                            {hechoNeg && <span className="text-[10px] font-bold text-[#fb7185]">⚠️ {esHoy ? 'Recaída hoy' : 'Recaída'} · {vecesNeg}</span>}
+                            {hechoPos && (
+                              <span className="flex items-center gap-[3px]">
+                                <span className="text-[10px] font-bold text-[#a99ff5]">✨ {esHoy ? 'Registrado hoy' : 'Registrado'} · {veces}</span>
+                                {esHoy && <button onClick={() => deshacerHabitoPos(h.id)} className="text-[#a99ff5] opacity-60 active:scale-90 transition-all" title="Deshacer"><IconUndo /></button>}
+                              </span>
+                            )}
+                            {hechoNeg && (
+                              <span className="flex items-center gap-[3px]">
+                                <span className="text-[10px] font-bold text-[#fb7185]">⚠️ {esHoy ? 'Recaída hoy' : 'Recaída'} · {vecesNeg}</span>
+                                {esHoy && <button onClick={() => deshacerHabitoNeg(h.id)} className="text-[#fb7185] opacity-60 active:scale-90 transition-all" title="Deshacer"><IconUndo /></button>}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-[7px] flex-shrink-0">
