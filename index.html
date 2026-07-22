@@ -153,6 +153,22 @@
     const rangoDe = (nivel) => { let r = RANGOS[0]; for (const x of RANGOS) { if (nivel >= x.min) r = x; } return r; };
     const rangoSiguiente = (nivel) => { for (const x of RANGOS) { if (nivel < x.min) return x; } return null; };
 
+    // ---------- Días de la semana para programar diarias (n = getDay(): 0=Dom..6=Sáb) ----------
+    const DIAS_SEM = [
+      { n: 1, label: 'L' }, { n: 2, label: 'M' }, { n: 3, label: 'M' },
+      { n: 4, label: 'J' }, { n: 5, label: 'V' }, { n: 6, label: 'S' }, { n: 0, label: 'D' },
+    ];
+    const TODOS_DIAS = [0, 1, 2, 3, 4, 5, 6];
+    const diasDe = (d) => (d && d.dias && d.dias.length ? d.dias : TODOS_DIAS);
+    const enDia = (d, key) => diasDe(d).includes(parseKey(key).getDay());
+    const etiquetaDias = (dias) => {
+      const s = (dias && dias.length ? dias : TODOS_DIAS);
+      if (s.length === 7) return 'Todos los días';
+      if (s.length === 5 && [1, 2, 3, 4, 5].every(x => s.includes(x))) return 'Lun a Vie';
+      if (s.length === 2 && s.includes(0) && s.includes(6)) return 'Fin de semana';
+      return DIAS_SEM.filter(w => s.includes(w.n)).map(w => w.label).join(' ');
+    };
+
     function App() {
       // ---- Progresión del personaje (inicio coherente: todo bajo) ----
       const [nivel, setNivel] = useState(G.nivel ?? 1);
@@ -182,8 +198,8 @@
         { id: 3, texto: 'Trote matutino', tipo: 'ambos' },
       ]);
       const [diarias, setDiarias] = useState(G.diarias ?? [
-        { id: 1, texto: 'Avanzar en Ovelin IA' },
-        { id: 2, texto: 'Repasar apuntes de Derecho' },
+        { id: 1, texto: 'Avanzar en Ovelin IA', dias: TODOS_DIAS },
+        { id: 2, texto: 'Repasar apuntes de Derecho', dias: TODOS_DIAS },
       ]);
       // Tareas puntuales: fecha = día de creación, completadoFecha = día en que se terminó
       const [pendientes, setPendientes] = useState(G.pendientes ?? []);
@@ -201,6 +217,8 @@
       const [nuevoTexto, setNuevoTexto] = useState('');
       const [nuevoTipo, setNuevoTipo] = useState('ambos');
       const [nuevaDif, setNuevaDif] = useState('media');
+      const [nuevaDias, setNuevaDias] = useState(TODOS_DIAS);
+      const [diariaEdit, setDiariaEdit] = useState(null);
       const [tituloNota, setTituloNota] = useState('');
       const [contenidoNota, setContenidoNota] = useState('');
       const [editandoNota, setEditandoNota] = useState(null);
@@ -230,6 +248,7 @@
           let dmg = 0;
           const bal0 = G.balance || PRESETS.normal;
           diarias.forEach(d => {
+            if (!enDia(d, ultimoDia)) return; // sólo cuenta si estaba programada ese día
             const hecha = diariaLog[d.id] && diariaLog[d.id][ultimoDia];
             if (!hecha) dmg += (bal0[d.dificultad || 'media'] || PRESETS.normal.media).dano;
           });
@@ -239,15 +258,17 @@
           }
         }
         setUltimoDia(todayKey);
-        setDiasActivos(m => (m[todayKey] ? m : { ...m, [todayKey]: true })); // registra que hoy usaste la app
       // eslint-disable-next-line
       }, []);
 
-      // ---- Racha real: días seguidos que has usado la app (se corta al saltarte un día) ----
+      // Marca "hoy" como día usado sólo cuando el usuario hace algo real (no por abrir la app)
+      const marcarActivo = () => setDiasActivos(m => (m[todayKey] ? m : { ...m, [todayKey]: true }));
+
+      // ---- Racha real: días seguidos con actividad real (se corta al saltarte un día) ----
       const calcRacha = () => {
         let r = 0; const d = new Date();
-        const activos = { ...diasActivos, [todayKey]: true }; // hoy cuenta porque la estás usando
-        while (activos[dk(d)]) { r++; d.setDate(d.getDate() - 1); }
+        if (!diasActivos[dk(d)]) d.setDate(d.getDate() - 1); // si hoy aún no has hecho nada, cuenta desde ayer
+        while (diasActivos[dk(d)]) { r++; d.setDate(d.getDate() - 1); }
         return r;
       };
       const racha = calcRacha();
@@ -285,7 +306,7 @@
         const arr = []; let d = parseKey(min); let guard = 0;
         while (dk(d) <= todayKey && guard < 800) {
           const key = dk(d);
-          arr.push({ id: key, numero: d.getDate(), nombre: NOMBRES_DIA[d.getDay()], completado: !!diasCompletados[key], activo: !!diasActivos[key] || key === todayKey, isToday: key === todayKey, isSel: key === selDia });
+          arr.push({ id: key, numero: d.getDate(), nombre: NOMBRES_DIA[d.getDay()], completado: !!diasCompletados[key], activo: !!diasActivos[key], isToday: key === todayKey, isSel: key === selDia });
           d.setDate(d.getDate() + 1); guard++;
         }
         return arr;
@@ -304,7 +325,7 @@
 
       // ---- Recompensas / daño / curación ----
       const curar = (cant) => setHp(h => Math.min(100, h + cant));
-      const contarTarea = () => setTareasPorDia(m => ({ ...m, [todayKey]: (m[todayKey] || 0) + 1 }));
+      const contarTarea = () => { setTareasPorDia(m => ({ ...m, [todayKey]: (m[todayKey] || 0) + 1 })); marcarActivo(); };
       const ganarRecompensa = (cant) => {
         let nx = xp + cant;
         if (nx >= 100) { setNivel(n => n + 1); setXp(nx - 100); setHp(100); }
@@ -352,7 +373,7 @@
           ganarRecompensa(v.xp); curar(v.cura); contarTarea();
           setHabitLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
         } else {
-          recibirDano(v.dano);
+          recibirDano(v.dano); marcarActivo();
           setHabitNegLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
         }
       };
@@ -385,7 +406,8 @@
           ganarRecompensa(df.xp); curar(df.cura); contarTarea();
           const nl = { ...diariaLog, [id]: { ...(diariaLog[id] || {}), [todayKey]: true } };
           setDiariaLog(nl);
-          if (diarias.length > 0 && diarias.every(d => nl[d.id] && nl[d.id][todayKey])) {
+          const programadasHoy = diarias.filter(d => enDia(d, todayKey));
+          if (programadasHoy.length > 0 && programadasHoy.every(d => nl[d.id] && nl[d.id][todayKey])) {
             setDiasCompletados(m => ({ ...m, [todayKey]: true }));
           }
         } else {
@@ -424,20 +446,31 @@
             setNotas(notas.map(n => n.id === editandoNota ? { ...n, titulo: tituloNota, contenido: contenidoNota } : n));
             setEditandoNota(null);
           } else {
+            // Las notas NO dan XP: sólo se guardan
             setNotas([{ id: Date.now(), titulo: tituloNota, contenido: contenidoNota, fecha: todayKey }, ...notas]);
-            ganarRecompensa(5);
           }
-          setTituloNota(''); setContenidoNota(''); return;
+          setTituloNota(''); setContenidoNota(''); marcarActivo(); return;
         }
         if (!nuevoTexto.trim()) return;
         const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif };
         if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
-        if (tab === 'diarias') setDiarias([...diarias, base]);
+        if (tab === 'diarias') setDiarias([...diarias, { ...base, dias: (nuevaDias && nuevaDias.length ? nuevaDias : [0, 1, 2, 3, 4, 5, 6]) }]);
         if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey }]);
-        setNuevoTexto('');
+        setNuevoTexto(''); marcarActivo();
       };
 
       const editarNota = (n) => { setEditandoNota(n.id); setTituloNota(n.titulo); setContenidoNota(n.contenido); setTab('notas'); };
+
+      // ---- Programación de diarias por día de la semana ----
+      const toggleNuevaDia = (n) => setNuevaDias(a => a.includes(n) ? a.filter(x => x !== n) : [...a, n]);
+      const abrirEditarDiaria = (d) => setDiariaEdit({ id: d.id, texto: d.texto, dificultad: d.dificultad || 'media', dias: diasDe(d).slice() });
+      const toggleDiaEdit = (n) => setDiariaEdit(e => ({ ...e, dias: e.dias.includes(n) ? e.dias.filter(x => x !== n) : [...e.dias, n] }));
+      const guardarDiariaEdit = () => {
+        if (!diariaEdit) return;
+        const dias = diariaEdit.dias.length ? diariaEdit.dias : TODOS_DIAS;
+        setDiarias(diarias.map(d => d.id === diariaEdit.id ? { ...d, texto: (diariaEdit.texto || '').trim() || d.texto, dificultad: diariaEdit.dificultad, dias } : d));
+        setDiariaEdit(null);
+      };
 
       // ---- Premios / recompensas ----
       const guardarRecompensa = (e) => {
@@ -483,7 +516,7 @@
 
       // ---- Respaldo: exportar / importar ----
       const exportarDatos = () => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, diariaLog, habitos, diarias, pendientes, notas, _exportado: new Date().toISOString(), _version: 3 };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _exportado: new Date().toISOString(), _version: 3 };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -560,7 +593,7 @@
 
         heading('Tareas diarias (' + diarias.length + ')');
         if (!diarias.length) line('- Sin tareas diarias.');
-        else diarias.forEach(d => line('- ' + d.texto + '  (' + difDe(d).label + ')'));
+        else diarias.forEach(d => line('- ' + d.texto + '  (' + difDe(d).label + ' · ' + etiquetaDias(diasDe(d)) + ')'));
 
         heading('Tareas pendientes (' + activas.length + ')');
         if (!activas.length) line('- Ninguna pendiente.');
@@ -607,6 +640,7 @@
       const notasMes = notas.filter(n => (n.fecha || '').slice(0, 7) === mesSel).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
       const nombreMes = (() => { const s = parseKey(mesSel + '-01').toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }); return s.charAt(0).toUpperCase() + s.slice(1); })();
       const notasLista = notasVista === 'mes' ? notasMes : notasDia;
+      const diariasDelDia = diarias.filter(d => enDia(d, selDia));
       const pendientesActivas = pendientes.filter(p => !p.completado);
       const archivoDia = pendientes.filter(p => p.completado && p.completadoFecha === selDia);
       const xpDia = xpPorDia[selDia] || 0;
@@ -836,8 +870,8 @@
 
             {tab === 'diarias' && (
               <div className="flex flex-col gap-[10px] anim-fade">
-                {diarias.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">Añade tu primera tarea diaria abajo.</div>}
-                {diarias.map(d => {
+                {diariasDelDia.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">{diarias.length === 0 ? 'Añade tu primera tarea diaria abajo.' : 'No hay diarias programadas para este día.'}</div>}
+                {diariasDelDia.map(d => {
                   const done = hechoDiaria(d.id);
                   return (
                     <div key={d.id} className={card + " p-[14px] flex items-center justify-between gap-[10px] transition-all"} style={{ opacity: done ? 0.5 : 1 }}>
@@ -847,10 +881,18 @@
                         </button>
                         <div className="flex flex-col gap-[3px] min-w-0">
                           <span className="text-sm font-medium truncate" style={{ color: done ? '#6b7280' : '#d3d6dd', textDecoration: done ? 'line-through' : 'none' }}>{d.texto}</span>
-                          <TagDif it={d} />
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <TagDif it={d} />
+                            <span className="text-[9px] font-bold text-[#5b6270]">🗓 {etiquetaDias(diasDe(d))}</span>
+                          </div>
                         </div>
                       </div>
-                      {esHoy && <button onClick={() => eliminarItem(d.id, 'diarias')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>}
+                      {esHoy && (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button onClick={() => abrirEditarDiaria(d)} className="text-[#6b7280] hover:text-[#b6adf7] p-1"><IconEdit /></button>
+                          <button onClick={() => eliminarItem(d.id, 'diarias')} className="text-[#4b5160] text-xs font-bold p-1">✕</button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1019,6 +1061,30 @@
                   })}
                 </div>
               )}
+              {tab === 'diarias' && (
+                <div className="mb-[10px]">
+                  <div className="flex items-center justify-between mb-[6px] px-1">
+                    <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">¿Qué días?</span>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setNuevaDias(TODOS_DIAS)} className="text-[10px] font-bold text-[#b6adf7]">Todos</button>
+                      <button type="button" onClick={() => setNuevaDias([1, 2, 3, 4, 5])} className="text-[10px] font-bold text-[#8b93a3]">L-V</button>
+                      <button type="button" onClick={() => setNuevaDias([6, 0])} className="text-[10px] font-bold text-[#8b93a3]">Fin</button>
+                    </div>
+                  </div>
+                  <div className="flex gap-[5px]">
+                    {DIAS_SEM.map(w => {
+                      const sel = nuevaDias.includes(w.n);
+                      return (
+                        <button key={w.n} type="button" onClick={() => toggleNuevaDia(w.n)} className="flex-1 py-[7px] rounded-lg text-[11px] font-bold transition-all" style={{
+                          background: sel ? 'rgba(124,115,240,0.2)' : 'rgba(255,255,255,0.04)',
+                          color: sel ? '#c4b5fd' : '#5b6270',
+                          border: sel ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                        }}>{w.label}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {tab === 'premios' ? (
                 <form onSubmit={guardarRecompensa} className="flex flex-col gap-2">
                   {editandoRec && <div className="flex justify-between items-center text-[10px] font-bold text-[#f5b23e] px-1"><span>✏️ Editando premio</span><button type="button" onClick={() => { setEditandoRec(null); setNuevaRecTexto(''); setNuevaRecCosto(''); }} className="text-[#6b7280]">Cancelar</button></div>}
@@ -1043,6 +1109,62 @@
                   </div>
                 </form>
               )}
+            </div>
+          )}
+
+          {/* ===== MODAL EDITAR DIARIA ===== */}
+          {diariaEdit && (
+            <div className="absolute inset-0 z-[70] flex items-end" style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(6px)' }} onClick={() => setDiariaEdit(null)}>
+              <div onClick={e => e.stopPropagation()} className="w-full p-6 border-t border-white/10 flex flex-col gap-4" style={{ background: '#12121a', borderRadius: '28px 28px 0 0', maxHeight: '86%', animation: 'slideUp .3s ease' }}>
+                <div className="flex justify-between items-center gap-3">
+                  <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0">Editar diaria</h2>
+                  <button onClick={() => setDiariaEdit(null)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
+                </div>
+
+                <input value={diariaEdit.texto} onChange={e => setDiariaEdit({ ...diariaEdit, texto: e.target.value })} placeholder="Nombre de la diaria" className="bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#7c73f0]" />
+
+                <div>
+                  <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">Dificultad</span>
+                  <div className="flex gap-[5px] mt-2">
+                    {DIF_ORDEN.map(k => {
+                      const v = DIF[k]; const sel = diariaEdit.dificultad === k;
+                      return (
+                        <button key={k} onClick={() => setDiariaEdit({ ...diariaEdit, dificultad: k })} className="flex-1 py-[7px] rounded-lg text-[10px] font-bold transition-all" style={{
+                          background: sel ? 'rgba(124,115,240,0.16)' : 'rgba(255,255,255,0.04)',
+                          color: sel ? v.c : '#6b7280',
+                          border: sel ? '1px solid ' + v.c + '77' : '1px solid rgba(255,255,255,0.06)'
+                        }}>{v.label}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">¿Qué días aparece?</span>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setDiariaEdit({ ...diariaEdit, dias: TODOS_DIAS.slice() })} className="text-[10px] font-bold text-[#b6adf7]">Todos</button>
+                      <button type="button" onClick={() => setDiariaEdit({ ...diariaEdit, dias: [1, 2, 3, 4, 5] })} className="text-[10px] font-bold text-[#8b93a3]">L-V</button>
+                      <button type="button" onClick={() => setDiariaEdit({ ...diariaEdit, dias: [6, 0] })} className="text-[10px] font-bold text-[#8b93a3]">Fin</button>
+                    </div>
+                  </div>
+                  <div className="flex gap-[5px]">
+                    {DIAS_SEM.map(w => {
+                      const sel = diariaEdit.dias.includes(w.n);
+                      return (
+                        <button key={w.n} type="button" onClick={() => toggleDiaEdit(w.n)} className="flex-1 py-[9px] rounded-lg text-[12px] font-bold transition-all" style={{
+                          background: sel ? 'rgba(124,115,240,0.2)' : 'rgba(255,255,255,0.04)',
+                          color: sel ? '#c4b5fd' : '#5b6270',
+                          border: sel ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                        }}>{w.label}</button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-[#6b7280] mt-2 m-0">Aparecerá y contará sólo en los días marcados: <b className="text-[#8b93a3]">{etiquetaDias(diariaEdit.dias)}</b></p>
+                </div>
+
+                <button onClick={guardarDiariaEdit} className="w-full py-[11px] rounded-lg text-white text-[13px] font-bold" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>Guardar cambios</button>
+              </div>
             </div>
           )}
 
