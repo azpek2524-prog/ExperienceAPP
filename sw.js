@@ -2,7 +2,7 @@
    - El documento HTML se sirve "red primero": con internet siempre cargas la
      ÚLTIMA versión; sin internet, la versión guardada (offline).
    - Iconos y librerías (versionadas) se sirven "caché primero". */
-const CACHE = 'lifetrack-v5';
+const CACHE = 'lifetrack-v6';
 
 // Recursos locales del propio origen (rutas relativas -> funcionan en subcarpetas)
 const APP_SHELL = [
