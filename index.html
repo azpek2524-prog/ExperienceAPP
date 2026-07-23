@@ -27,6 +27,7 @@
 
   <style>
     * { -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
     body { margin: 0; background: #050508; font-family: 'Inter', system-ui, sans-serif; }
     .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
     .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -752,7 +753,7 @@
           )}
 
           {/* ===== MAIN ===== */}
-          <main className={"flex-1 overflow-y-auto hide-scrollbar p-4 " + (showInput ? (tab === 'habitos' ? 'pb-44' : (tab === 'notas' ? 'pb-40' : 'pb-36')) : 'pb-6')}>
+          <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : (tab === 'diarias' ? 'pb-56' : (tab === 'habitos' ? 'pb-48' : (tab === 'notas' ? 'pb-40' : (tab === 'premios' ? 'pb-32' : 'pb-36')))))} style={{ WebkitOverflowScrolling: 'touch' }}>
 
             {tab === 'dashboard' && (
               <div className="flex flex-col gap-[14px] anim-fade">
@@ -880,7 +881,7 @@
                           {done && <IconTick />}
                         </button>
                         <div className="flex flex-col gap-[3px] min-w-0">
-                          <span className="text-sm font-medium truncate" style={{ color: done ? '#6b7280' : '#d3d6dd', textDecoration: done ? 'line-through' : 'none' }}>{d.texto}</span>
+                          <span className="text-sm font-medium break-words" style={{ color: done ? '#6b7280' : '#d3d6dd', textDecoration: done ? 'line-through' : 'none' }}>{d.texto}</span>
                           <div className="flex items-center gap-2 flex-wrap">
                             <TagDif it={d} />
                             <span className="text-[9px] font-bold text-[#5b6270]">🗓 {etiquetaDias(diasDe(d))}</span>
@@ -907,7 +908,7 @@
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <button onClick={() => completarPendiente(p.id)} className="w-[22px] h-[22px] rounded-full border-2 border-[#565d6c] flex-shrink-0 transition-all active:scale-90 hover:border-emerald-400"></button>
                       <div className="flex flex-col gap-[3px] min-w-0">
-                        <span className="text-sm font-medium text-[#d3d6dd] truncate">{p.texto}</span>
+                        <span className="text-sm font-medium text-[#d3d6dd] break-words">{p.texto}</span>
                         <TagDif it={p} />
                       </div>
                     </div>
@@ -923,7 +924,7 @@
                 {!esHoy && archivoDia.map(p => (
                   <div key={p.id} className="p-[14px] rounded-[10px] flex items-center gap-3 bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.72 }}>
                     <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
-                    <span className="text-sm text-[#6b7280] line-through truncate">{p.texto}</span>
+                    <span className="text-sm text-[#6b7280] line-through break-words">{p.texto}</span>
                   </div>
                 ))}
               </div>
@@ -938,7 +939,7 @@
                   <div key={p.id} className="p-[14px] rounded-[10px] flex items-center justify-between gap-[10px] bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.85 }}>
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
-                      <span className="text-sm text-[#6b7280] line-through truncate">{p.texto}</span>
+                      <span className="text-sm text-[#6b7280] line-through break-words">{p.texto}</span>
                     </div>
                     {esHoy && (
                       <button onClick={() => deshacerPendiente(p.id)} className="flex items-center gap-[5px] text-[11px] font-bold text-[#fb7185] px-[10px] py-[6px] rounded-lg flex-shrink-0 active:scale-95 transition-all" style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)' }}>
