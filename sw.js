@@ -1,21 +1,27 @@
-/* Life Track - Service Worker
-   Objetivo: cargar SIEMPRE rápido (como offline) y a la vez mantenerse al día.
-   - Documento HTML: intenta la red con un límite de 2.5s; si no responde a
-     tiempo, muestra el caché al instante y sigue actualizando en segundo plano.
-   - Iconos y librerías (versionadas): caché primero. */
-const CACHE = 'lifetrack-v7';
+/* Life Track - Service Worker (robusto para redes lentas)
+   - Precarga TODAS las librerías pesadas (React, ReactDOM, Babel, Tailwind,
+     jsPDF, fuentes) para no re-descargarlas nunca en una red lenta.
+   - Las librerías se buscan en CUALQUIER caché existente (nunca se pierden
+     al actualizar).
+   - El HTML intenta la red con límite de 2.5s; si tarda, sirve el caché al
+     instante y actualiza en segundo plano.
+   - Sólo limpia cachés viejos DESPUÉS de confirmar que el nuevo ya tiene las
+     librerías (así una descarga fallida no te deja sin nada). */
+const CACHE = 'lifetrack-shell';
 const TIMEOUT_MS = 2500;
 
-const APP_SHELL = [
-  './',
-  './index.html',
-  './manifest.webmanifest',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-512-maskable.png',
-  './apple-touch-icon.png',
+const LIBS = [
+  'https://cdn.tailwindcss.com',
+  'https://unpkg.com/react@18/umd/react.production.min.js',
+  'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
+  'https://unpkg.com/@babel/standalone/babel.min.js',
   'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js',
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap',
 ];
+const APP_SHELL = [
+  './', './index.html', './manifest.webmanifest',
+  './icon-192.png', './icon-512.png', './icon-512-maskable.png', './apple-touch-icon.png',
+].concat(LIBS);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -26,11 +32,16 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    await self.clients.claim();
+    // Limpia cachés viejos SÓLO si el nuevo ya tiene las librerías clave.
+    const cache = await caches.open(CACHE);
+    const listo = await cache.match(LIBS[1]); // react
+    if (listo) {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+    }
+  })());
 });
 
 self.addEventListener('fetch', (event) => {
@@ -40,36 +51,31 @@ self.addEventListener('fetch', (event) => {
   const esNavegacion = req.mode === 'navigate' || req.destination === 'document';
 
   if (esNavegacion) {
-    // Red con límite de tiempo: si tarda más de 2.5s, servir caché al instante.
-    // La descarga de red continúa en segundo plano y refresca el caché para la próxima vez.
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
-      const cached = (await cache.match(req)) || (await cache.match('./index.html')) || (await cache.match('./'));
+      const enCache = (await caches.match(req)) || (await cache.match('./index.html')) || (await cache.match('./'));
       const red = fetch(req).then((res) => {
-        if (res && res.ok) cache.put(req, res.clone()).catch(() => {});
+        if (res && res.ok) cache.put('./index.html', res.clone()).catch(() => {});
         return res;
       }).catch(() => null);
       const limite = new Promise((r) => setTimeout(() => r(null), TIMEOUT_MS));
       const rapido = await Promise.race([red, limite]);
-      if (rapido) return rapido;      // la red respondió a tiempo -> versión fresca
-      if (cached) return cached;       // red lenta -> caché al instante (la red sigue actualizando)
-      return (await red) || cache.match('./index.html'); // sin caché -> espera la red
+      if (rapido) return rapido;
+      if (enCache) return enCache;
+      return (await red) || cache.match('./index.html');
     })());
     return;
   }
 
-  // Resto: caché primero con revalidación en segundo plano.
-  event.respondWith(
-    caches.open(CACHE).then((cache) =>
-      cache.match(req).then((cached) => {
-        const red = fetch(req)
-          .then((res) => {
-            if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone()).catch(() => {});
-            return res;
-          })
-          .catch(() => cached);
-        return cached || red;
-      })
-    )
-  );
+  // Librerías / iconos: se buscan en CUALQUIER caché (nunca se pierden) y se
+  // revalidan en segundo plano dentro del caché actual.
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const enCache = await caches.match(req);
+    const red = fetch(req).then((res) => {
+      if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone()).catch(() => {});
+      return res;
+    }).catch(() => enCache);
+    return enCache || red;
+  })());
 });
