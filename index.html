@@ -186,7 +186,6 @@
       const [habitNegLog, setHabitNegLog] = useState(G.habitNegLog ?? {}); // { habitId: { dia: conteo } }  (negativos)
       const [diariaLog, setDiariaLog] = useState(G.diariaLog ?? {});       // { diariaId: { dia: true } }
       const [ultimoDia, setUltimoDia] = useState(G.ultimoDia ?? todayKey); // última vez que se abrió (para penalizar diarias sin cumplir)
-      const [diasActivos, setDiasActivos] = useState(G.diasActivos ?? {}); // { dia: true } días que abriste la app (para la racha real)
 
       // ---- Balance ajustable ----
       const [modoBalance, setModoBalance] = useState(G.modoBalance ?? 'normal');
@@ -239,9 +238,9 @@
 
       // ---- Guardado automático ----
       useEffect(() => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
 
       // ---- Al abrir en un día nuevo: penalizar las diarias que no completaste el último día activo ----
       useEffect(() => {
@@ -262,14 +261,14 @@
       // eslint-disable-next-line
       }, []);
 
-      // Marca "hoy" como día usado sólo cuando el usuario hace algo real (no por abrir la app)
-      const marcarActivo = () => setDiasActivos(m => (m[todayKey] ? m : { ...m, [todayKey]: true }));
-
-      // ---- Racha real: días seguidos con actividad real (se corta al saltarte un día) ----
+      // ---- Racha 100% real: se DERIVA de tu productividad (días con XP > 0),
+      //      exactamente lo que muestra la gráfica. No se guarda ningún registro
+      //      aparte, así que es imposible que se desincronice o se ensucie. ----
+      const diaActivo = (key) => (xpPorDia[key] || 0) > 0;
       const calcRacha = () => {
         let r = 0; const d = new Date();
-        if (!diasActivos[dk(d)]) d.setDate(d.getDate() - 1); // si hoy aún no has hecho nada, cuenta desde ayer
-        while (diasActivos[dk(d)]) { r++; d.setDate(d.getDate() - 1); }
+        if (!diaActivo(dk(d))) d.setDate(d.getDate() - 1); // si hoy aún no hay actividad, cuenta desde ayer
+        while (diaActivo(dk(d))) { r++; d.setDate(d.getDate() - 1); }
         return r;
       };
       const racha = calcRacha();
@@ -296,7 +295,6 @@
         const push = k => { if (k && k < min) min = k; };
         Object.keys(xpPorDia).forEach(push);
         Object.keys(diasCompletados).forEach(push);
-        Object.keys(diasActivos).forEach(push);
         Object.values(habitLog).forEach(o => Object.keys(o).forEach(push));
         Object.values(habitNegLog).forEach(o => Object.keys(o).forEach(push));
         Object.values(diariaLog).forEach(o => Object.keys(o).forEach(push));
@@ -307,7 +305,7 @@
         const arr = []; let d = parseKey(min); let guard = 0;
         while (dk(d) <= todayKey && guard < 800) {
           const key = dk(d);
-          arr.push({ id: key, numero: d.getDate(), nombre: NOMBRES_DIA[d.getDay()], completado: !!diasCompletados[key], activo: !!diasActivos[key], isToday: key === todayKey, isSel: key === selDia });
+          arr.push({ id: key, numero: d.getDate(), nombre: NOMBRES_DIA[d.getDay()], completado: !!diasCompletados[key], activo: diaActivo(key), isToday: key === todayKey, isSel: key === selDia });
           d.setDate(d.getDate() + 1); guard++;
         }
         return arr;
@@ -326,7 +324,7 @@
 
       // ---- Recompensas / daño / curación ----
       const curar = (cant) => setHp(h => Math.min(100, h + cant));
-      const contarTarea = () => { setTareasPorDia(m => ({ ...m, [todayKey]: (m[todayKey] || 0) + 1 })); marcarActivo(); };
+      const contarTarea = () => setTareasPorDia(m => ({ ...m, [todayKey]: (m[todayKey] || 0) + 1 }));
       const ganarRecompensa = (cant) => {
         let nx = xp + cant;
         if (nx >= 100) { setNivel(n => n + 1); setXp(nx - 100); setHp(100); }
@@ -374,7 +372,7 @@
           ganarRecompensa(v.xp); curar(v.cura); contarTarea();
           setHabitLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
         } else {
-          recibirDano(v.dano); marcarActivo();
+          recibirDano(v.dano);
           setHabitNegLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
         }
       };
@@ -450,14 +448,14 @@
             // Las notas NO dan XP: sólo se guardan
             setNotas([{ id: Date.now(), titulo: tituloNota, contenido: contenidoNota, fecha: todayKey }, ...notas]);
           }
-          setTituloNota(''); setContenidoNota(''); marcarActivo(); return;
+          setTituloNota(''); setContenidoNota(''); return;
         }
         if (!nuevoTexto.trim()) return;
         const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif };
         if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
         if (tab === 'diarias') setDiarias([...diarias, { ...base, dias: (nuevaDias && nuevaDias.length ? nuevaDias : [0, 1, 2, 3, 4, 5, 6]) }]);
         if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey }]);
-        setNuevoTexto(''); marcarActivo();
+        setNuevoTexto('');
       };
 
       const editarNota = (n) => { setEditandoNota(n.id); setTituloNota(n.titulo); setContenidoNota(n.contenido); setTab('notas'); };
@@ -517,7 +515,7 @@
 
       // ---- Respaldo: exportar / importar ----
       const exportarDatos = () => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, diasActivos, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _exportado: new Date().toISOString(), _version: 3 };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _exportado: new Date().toISOString(), _version: 3 };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
