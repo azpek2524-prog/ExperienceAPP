@@ -162,6 +162,9 @@
     const TODOS_DIAS = [0, 1, 2, 3, 4, 5, 6];
     const diasDe = (d) => (d && d.dias && d.dias.length ? d.dias : TODOS_DIAS);
     const enDia = (d, key) => diasDe(d).includes(parseKey(key).getDay());
+    // ¿El ítem (hábito/diaria) existía en el día 'key'? Congela el pasado:
+    // aparece desde su fecha de creación y hasta el día en que se archivó (exclusivo).
+    const existe = (it, key) => (!it.creado || it.creado <= key) && (!it.archivado || key < it.archivado);
     const etiquetaDias = (dias) => {
       const s = (dias && dias.length ? dias : TODOS_DIAS);
       if (s.length === 7) return 'Todos los días';
@@ -248,7 +251,7 @@
           let dmg = 0;
           const bal0 = G.balance || PRESETS.normal;
           diarias.forEach(d => {
-            if (!enDia(d, ultimoDia)) return; // sólo cuenta si estaba programada ese día
+            if (!existe(d, ultimoDia) || !enDia(d, ultimoDia)) return; // sólo si existía y estaba programada ese día
             const hecha = diariaLog[d.id] && diariaLog[d.id][ultimoDia];
             if (!hecha) dmg += (bal0[d.dificultad || 'media'] || PRESETS.normal.media).dano;
           });
@@ -405,7 +408,7 @@
           ganarRecompensa(df.xp); curar(df.cura); contarTarea();
           const nl = { ...diariaLog, [id]: { ...(diariaLog[id] || {}), [todayKey]: true } };
           setDiariaLog(nl);
-          const programadasHoy = diarias.filter(d => enDia(d, todayKey));
+          const programadasHoy = diarias.filter(d => existe(d, todayKey) && enDia(d, todayKey));
           if (programadasHoy.length > 0 && programadasHoy.every(d => nl[d.id] && nl[d.id][todayKey])) {
             setDiasCompletados(m => ({ ...m, [todayKey]: true }));
           }
@@ -451,7 +454,7 @@
           setTituloNota(''); setContenidoNota(''); return;
         }
         if (!nuevoTexto.trim()) return;
-        const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif };
+        const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif, creado: todayKey };
         if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
         if (tab === 'diarias') setDiarias([...diarias, { ...base, dias: (nuevaDias && nuevaDias.length ? nuevaDias : [0, 1, 2, 3, 4, 5, 6]) }]);
         if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey }]);
@@ -467,7 +470,20 @@
       const guardarDiariaEdit = () => {
         if (!diariaEdit) return;
         const dias = diariaEdit.dias.length ? diariaEdit.dias : TODOS_DIAS;
-        setDiarias(diarias.map(d => d.id === diariaEdit.id ? { ...d, texto: (diariaEdit.texto || '').trim() || d.texto, dificultad: diariaEdit.dificultad, dias } : d));
+        const orig = diarias.find(d => d.id === diariaEdit.id);
+        const texto = (diariaEdit.texto || '').trim() || (orig ? orig.texto : '');
+        if (orig && orig.creado === todayKey) {
+          // Creada hoy: sin historial que proteger -> se edita en el mismo ítem.
+          setDiarias(diarias.map(d => d.id === diariaEdit.id ? { ...d, texto, dificultad: diariaEdit.dificultad, dias } : d));
+        } else {
+          // Con historial: congela la versión vieja (archivada hoy) y crea una nueva desde hoy.
+          const nuevoId = Date.now();
+          setDiarias(diarias.map(d => d.id === diariaEdit.id ? { ...d, archivado: todayKey } : d)
+            .concat([{ id: nuevoId, texto, dificultad: diariaEdit.dificultad, dias, creado: todayKey }]));
+          if (diariaLog[diariaEdit.id] && diariaLog[diariaEdit.id][todayKey]) {
+            setDiariaLog(l => ({ ...l, [nuevoId]: { [todayKey]: true } })); // conserva la marca de hoy
+          }
+        }
         setDiariaEdit(null);
       };
 
@@ -499,8 +515,11 @@
 
       const eliminarItem = (id, lista) => {
         if (!esHoy) return;
-        if (lista === 'habitos') setHabitos(habitos.filter(i => i.id !== id));
-        if (lista === 'diarias') setDiarias(diarias.filter(i => i.id !== id));
+        // Hábitos y diarias: NO se borran de verdad -> se archivan hoy, para que
+        // los días pasados conserven el ítem y su registro (pasado congelado).
+        // Si se creó hoy (sin historial), se elimina de verdad.
+        if (lista === 'habitos') setHabitos(habitos.map(i => i.id === id ? { ...i, archivado: todayKey } : i).filter(i => !(i.id === id && i.creado === todayKey)));
+        if (lista === 'diarias') setDiarias(diarias.map(i => i.id === id ? { ...i, archivado: todayKey } : i).filter(i => !(i.id === id && i.creado === todayKey)));
         if (lista === 'pendientes') setPendientes(pendientes.filter(i => i.id !== id));
         if (lista === 'notas') { setNotas(notas.filter(i => i.id !== id)); if (editandoNota === id) { setEditandoNota(null); setTituloNota(''); setContenidoNota(''); } }
       };
@@ -586,13 +605,15 @@
         line('Oro: ' + oro + '     Racha actual: ' + racha + ' dias');
         line('XP total acumulada: ' + Math.round(sum(xpPorDia)) + '     Dias completados: ' + Object.keys(diasCompletados).length + '     Acciones totales: ' + sum(tareasPorDia));
 
-        heading('Habitos (' + habitos.length + ')');
-        if (!habitos.length) line('- Sin habitos.');
-        else habitos.forEach(h => line('- ' + h.texto + '  (' + h.tipo + ' · ' + difDe(h).label + ')'));
+        const habitosAct = habitos.filter(h => existe(h, todayKey));
+        const diariasAct = diarias.filter(d => existe(d, todayKey));
+        heading('Habitos (' + habitosAct.length + ')');
+        if (!habitosAct.length) line('- Sin habitos.');
+        else habitosAct.forEach(h => line('- ' + h.texto + '  (' + h.tipo + ' · ' + difDe(h).label + ')'));
 
-        heading('Tareas diarias (' + diarias.length + ')');
-        if (!diarias.length) line('- Sin tareas diarias.');
-        else diarias.forEach(d => line('- ' + d.texto + '  (' + difDe(d).label + ' · ' + etiquetaDias(diasDe(d)) + ')'));
+        heading('Tareas diarias (' + diariasAct.length + ')');
+        if (!diariasAct.length) line('- Sin tareas diarias.');
+        else diariasAct.forEach(d => line('- ' + d.texto + '  (' + difDe(d).label + ' · ' + etiquetaDias(diasDe(d)) + ')'));
 
         heading('Tareas pendientes (' + activas.length + ')');
         if (!activas.length) line('- Ninguna pendiente.');
@@ -639,7 +660,8 @@
       const notasMes = notas.filter(n => (n.fecha || '').slice(0, 7) === mesSel).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
       const nombreMes = (() => { const s = parseKey(mesSel + '-01').toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }); return s.charAt(0).toUpperCase() + s.slice(1); })();
       const notasLista = notasVista === 'mes' ? notasMes : notasDia;
-      const diariasDelDia = diarias.filter(d => enDia(d, selDia));
+      const diariasDelDia = diarias.filter(d => existe(d, selDia) && enDia(d, selDia));
+      const habitosDelDia = habitos.filter(h => existe(h, selDia));
       const pendientesActivas = pendientes.filter(p => !p.completado);
       const archivoDia = pendientes.filter(p => p.completado && p.completadoFecha === selDia);
       const xpDia = xpPorDia[selDia] || 0;
@@ -820,8 +842,8 @@
 
             {tab === 'habitos' && (
               <div className="flex flex-col gap-[10px] anim-fade">
-                {habitos.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">Añade tu primer hábito abajo.</div>}
-                {habitos.map(h => {
+                {habitosDelDia.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">{habitos.length === 0 ? 'Añade tu primer hábito abajo.' : 'No había hábitos este día.'}</div>}
+                {habitosDelDia.map(h => {
                   const veces = countHabito(h.id);
                   const vecesNeg = countHabitoNeg(h.id);
                   const hechoPos = veces > 0;
