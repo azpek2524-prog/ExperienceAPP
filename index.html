@@ -188,6 +188,7 @@
       const [habitLog, setHabitLog] = useState(G.habitLog ?? {});          // { habitId: { dia: conteo } }  (positivos)
       const [habitNegLog, setHabitNegLog] = useState(G.habitNegLog ?? {}); // { habitId: { dia: conteo } }  (negativos)
       const [diariaLog, setDiariaLog] = useState(G.diariaLog ?? {});       // { diariaId: { dia: true } }
+      const [efectos, setEfectos] = useState(G.efectos ?? {});            // { clave: [efecto,...] } efecto exacto de cada acción, para revertir idéntico
       const [ultimoDia, setUltimoDia] = useState(G.ultimoDia ?? todayKey); // última vez que se abrió (para penalizar diarias sin cumplir)
 
       // ---- Balance ajustable ----
@@ -241,9 +242,9 @@
 
       // ---- Guardado automático ----
       useEffect(() => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
 
       // ---- Al abrir en un día nuevo: penalizar las diarias que no completaste el último día activo ----
       useEffect(() => {
@@ -325,34 +326,42 @@
         setTimeout(() => setFloaters(f => f.filter(x => x.id !== id)), 1100);
       };
 
-      // ---- Recompensas / daño / curación ----
-      const curar = (cant) => setHp(h => Math.min(100, h + cant));
-      const contarTarea = () => setTareasPorDia(m => ({ ...m, [todayKey]: (m[todayKey] || 0) + 1 }));
-      const ganarRecompensa = (cant) => {
-        let nx = xp + cant;
-        if (nx >= 100) { setNivel(n => n + 1); setXp(nx - 100); setHp(100); }
-        else { setXp(nx); }
-        setOro(o => o + Math.floor(cant / 2));
-        setXpPorDia(m => ({ ...m, [todayKey]: (m[todayKey] || 0) + cant }));
-        addFloater('+' + cant + ' XP', '#b6a6ff');
+      // ---- Sistema de efectos exactos ----
+      // 'aplicar' hace un cambio y DEVUELVE el efecto real aplicado (ya con topes),
+      // para que al deshacer se revierta idéntico. 'revertir' resta ese mismo efecto.
+      const aplicar = (n) => {
+        const totalAntes = (nivel - 1) * 100 + xp;
+        const totalDesp = Math.max(0, totalAntes + (n.xp || 0));
+        const hpDesp = Math.max(0, Math.min(100, hp + (n.hp || 0)));
+        const oroDesp = Math.max(0, oro + (n.oro || 0));
+        setNivel(Math.floor(totalDesp / 100) + 1);
+        setXp(totalDesp % 100);
+        setHp(hpDesp);
+        setOro(oroDesp);
+        const dia = n.dia || todayKey;
+        if (n.xpDia) setXpPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.xpDia) }));
+        if (n.tareas) setTareasPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.tareas) }));
+        return { dTotal: totalDesp - totalAntes, dHp: hpDesp - hp, dOro: oroDesp - oro, dia, dXpDia: n.xpDia || 0, dTareas: n.tareas || 0 };
       };
-      const recibirDano = (cant) => {
-        let nh = hp - cant;
-        if (nh <= 0) { setHp(10); if (nivel > 1) setNivel(n => n - 1); setXp(0); }
-        else { setHp(nh); }
-        addFloater('−' + cant + ' HP', '#fb7185');
+      const revertir = (ef) => {
+        if (!ef) return;
+        const totalAntes = (nivel - 1) * 100 + xp;
+        const totalDesp = Math.max(0, totalAntes - (ef.dTotal || 0));
+        setNivel(Math.floor(totalDesp / 100) + 1);
+        setXp(totalDesp % 100);
+        setHp(x => Math.max(0, Math.min(100, x - (ef.dHp || 0))));
+        setOro(o => Math.max(0, o - (ef.dOro || 0)));
+        const restar = (m, dia, cant) => { const v = Math.max(0, (m[dia] || 0) - cant); const c = { ...m }; if (v <= 0) delete c[dia]; else c[dia] = v; return c; };
+        if (ef.dXpDia) setXpPorDia(m => restar(m, ef.dia, ef.dXpDia));
+        if (ef.dTareas) setTareasPorDia(m => restar(m, ef.dia, ef.dTareas));
       };
-
-      // Revierte una recompensa (para deshacer): resta XP (baja de nivel si aplica), oro y contadores del día
-      const quitarRecompensa = (cant, dia) => {
-        const totalActual = (nivel - 1) * 100 + xp;
-        const nuevoTotal = Math.max(0, totalActual - cant);
-        setNivel(Math.floor(nuevoTotal / 100) + 1);
-        setXp(nuevoTotal % 100);
-        setOro(o => Math.max(0, o - Math.floor(cant / 2)));
-        setXpPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) - cant) }));
-        setTareasPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) - 1) }));
-        addFloater('−' + cant + ' XP', '#fb7185');
+      const pushEfecto = (key, ef) => setEfectos(e => ({ ...e, [key]: [...(e[key] || []), ef] }));
+      const popEfecto = (key) => {
+        const arr = efectos[key] || [];
+        if (!arr.length) return null;
+        const ef = arr[arr.length - 1];
+        setEfectos(e => ({ ...e, [key]: (e[key] || []).slice(0, -1) }));
+        return ef;
       };
 
       // Valores de balance activos para un elemento según su dificultad
@@ -372,29 +381,33 @@
         const h = habitos.find(x => x.id === id);
         const v = valDe(h);
         if (tipo === 'positivo') {
-          ganarRecompensa(v.xp); curar(v.cura); contarTarea();
+          const ef = aplicar({ xp: v.xp, hp: v.cura, oro: Math.floor(v.xp / 2), dia: todayKey, xpDia: v.xp, tareas: 1 });
+          pushEfecto('hp:' + id, ef);
+          addFloater('+' + v.xp + ' XP', '#b6a6ff');
           setHabitLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
         } else {
-          recibirDano(v.dano);
+          const ef = aplicar({ hp: -v.dano, dia: todayKey });
+          pushEfecto('hn:' + id, ef);
+          addFloater('−' + v.dano + ' HP', '#fb7185');
           setHabitNegLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
         }
       };
 
       const bajarConteo = (mapa, id) => { const cur = { ...(mapa[id] || {}) }; const n = (cur[todayKey] || 0) - 1; if (n <= 0) delete cur[todayKey]; else cur[todayKey] = n; return { ...mapa, [id]: cur }; };
-      // Deshacer un "+" puesto por error: resta la XP ganada y quita la curación
+      // Fallback para acciones viejas (sin efecto guardado): recompensa positiva
+      const efPos = (it) => { const v = valDe(it); return { dTotal: v.xp, dHp: v.cura, dOro: Math.floor(v.xp / 2), dia: todayKey, dXpDia: v.xp, dTareas: 1 }; };
+      // Deshacer un "+" puesto por error: revierte el efecto EXACTO que dio
       const deshacerHabitoPos = (id) => {
         if (!esHoy || countHabito(id) <= 0) return;
-        const v = valDe(habitos.find(x => x.id === id));
-        quitarRecompensa(v.xp, todayKey);
-        setHp(x => Math.max(1, x - v.cura));
+        revertir(popEfecto('hp:' + id) || efPos(habitos.find(x => x.id === id)));
         setHabitLog(l => bajarConteo(l, id));
       };
-      // Deshacer un "−" puesto por error: devuelve la vida perdida
+      // Deshacer un "−" puesto por error: devuelve la vida EXACTA que quitó
       const deshacerHabitoNeg = (id) => {
         if (!esHoy || countHabitoNeg(id) <= 0) return;
-        const v = valDe(habitos.find(x => x.id === id));
-        setHp(x => Math.min(100, x + v.dano));
-        addFloater('+' + v.dano + ' HP', '#34d399');
+        const ef = popEfecto('hn:' + id) || { dHp: -valDe(habitos.find(x => x.id === id)).dano };
+        revertir(ef);
+        addFloater('+' + Math.abs(ef.dHp || 0) + ' HP', '#34d399');
         setHabitNegLog(l => bajarConteo(l, id));
       };
 
@@ -405,7 +418,9 @@
         const df = valDe(dObj);
         const done = hechoDiaria(id);
         if (!done) {
-          ganarRecompensa(df.xp); curar(df.cura); contarTarea();
+          const ef = aplicar({ xp: df.xp, hp: df.cura, oro: Math.floor(df.xp / 2), dia: todayKey, xpDia: df.xp, tareas: 1 });
+          pushEfecto('d:' + id, ef);
+          addFloater('+' + df.xp + ' XP', '#b6a6ff');
           const nl = { ...diariaLog, [id]: { ...(diariaLog[id] || {}), [todayKey]: true } };
           setDiariaLog(nl);
           const programadasHoy = diarias.filter(d => existe(d, todayKey) && enDia(d, todayKey));
@@ -413,7 +428,7 @@
             setDiasCompletados(m => ({ ...m, [todayKey]: true }));
           }
         } else {
-          quitarRecompensa(df.xp, todayKey);
+          revertir(popEfecto('d:' + id) || efPos(dObj));
           const cur = { ...(diariaLog[id] || {}) }; delete cur[todayKey];
           setDiariaLog({ ...diariaLog, [id]: cur });
           setDiasCompletados(m => { const c = { ...m }; delete c[todayKey]; return c; });
@@ -425,16 +440,18 @@
         const p = pendientes.find(x => x.id === id);
         if (!p || p.completado) return;
         const df = valDe(p);
-        ganarRecompensa(df.xp); curar(df.cura); contarTarea();
+        const ef = aplicar({ xp: df.xp, hp: df.cura, oro: Math.floor(df.xp / 2), dia: todayKey, xpDia: df.xp, tareas: 1 });
+        pushEfecto('t:' + id, ef);
+        addFloater('+' + df.xp + ' XP', '#b6a6ff');
         setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: true, completadoFecha: todayKey } : x));
       };
 
-      // Corrige una tarea marcada por error: la devuelve a pendientes y resta la XP ganada
+      // Corrige una tarea marcada por error: la devuelve a pendientes y revierte el efecto EXACTO
       const deshacerPendiente = (id) => {
         if (!esHoy) return;
         const p = pendientes.find(x => x.id === id);
         if (!p || !p.completado) return;
-        quitarRecompensa(valDe(p).xp, p.completadoFecha || todayKey);
+        revertir(popEfecto('t:' + id) || efPos(p));
         setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: false, completadoFecha: null } : x));
       };
 
@@ -534,7 +551,7 @@
 
       // ---- Respaldo: exportar / importar ----
       const exportarDatos = () => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _exportado: new Date().toISOString(), _version: 3 };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _exportado: new Date().toISOString(), _version: 3 };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
