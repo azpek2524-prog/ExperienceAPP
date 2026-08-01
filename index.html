@@ -228,6 +228,7 @@
       const [editandoNota, setEditandoNota] = useState(null);
       const [notaExpandida, setNotaExpandida] = useState(null);
       const [notasVista, setNotasVista] = useState('dia');
+      const [mesVista, setMesVista] = useState(todayKey.slice(0, 7)); // 'YYYY-MM' del mes que se ve en la vista mensual
       const [nuevaRecTexto, setNuevaRecTexto] = useState('');
       const [nuevaRecCosto, setNuevaRecCosto] = useState('');
       const [editandoRec, setEditandoRec] = useState(null);
@@ -673,10 +674,18 @@
         { id: 'ambos', label: '± Ambos', c: '#8b93a3' },
       ];
       const notasDia = notas.filter(n => n.fecha === selDia);
-      const mesSel = selDia.slice(0, 7);
-      const notasMes = notas.filter(n => (n.fecha || '').slice(0, 7) === mesSel).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
-      const nombreMes = (() => { const s = parseKey(mesSel + '-01').toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }); return s.charAt(0).toUpperCase() + s.slice(1); })();
+      const notasMes = notas.filter(n => (n.fecha || '').slice(0, 7) === mesVista).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+      const nombreMes = (() => { const s = parseKey(mesVista + '-01').toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }); return s.charAt(0).toUpperCase() + s.slice(1); })();
+      const mesEsActual = mesVista >= todayKey.slice(0, 7);
+      const cambiarMes = (delta) => {
+        const [y, m] = mesVista.split('-').map(Number);
+        const d = new Date(y, m - 1 + delta, 1);
+        const nm = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+        if (nm > todayKey.slice(0, 7)) return; // sin meses futuros
+        setMesVista(nm);
+      };
       const notasLista = notasVista === 'mes' ? notasMes : notasDia;
+      const vistaMes = tab === 'notas' && notasVista === 'mes'; // vista mensual: no depende del día seleccionado
       const diariasDelDia = diarias.filter(d => existe(d, selDia) && enDia(d, selDia));
       const habitosDelDia = habitos.filter(h => existe(h, selDia));
       const pendientesActivas = pendientes.filter(p => !p.completado);
@@ -762,7 +771,8 @@
             })}
           </nav>
 
-          {/* ===== SELECTOR DE DÍA ===== */}
+          {/* ===== SELECTOR DE DÍA (oculto en la vista mensual de notas) ===== */}
+          {!vistaMes && (
           <div className="flex items-center justify-between px-3 py-[9px] bg-[#0a0a10] border-b border-white/[0.06] flex-shrink-0">
             <button onClick={() => moverDia(-1)} className="w-8 h-8 rounded-lg flex items-center justify-center text-[#8b93a3] bg-white/[0.04] active:scale-90 transition-all"><IconChevron dir="left" /></button>
             <div className="flex items-center gap-2">
@@ -773,9 +783,10 @@
             </div>
             <button onClick={() => moverDia(1)} disabled={esHoy} className="w-8 h-8 rounded-lg flex items-center justify-center transition-all active:scale-90" style={{ color: esHoy ? '#33343d' : '#8b93a3', background: esHoy ? 'transparent' : 'rgba(255,255,255,0.04)' }}><IconChevron dir="right" /></button>
           </div>
+          )}
 
           {/* ===== AVISO SOLO LECTURA ===== */}
-          {!esHoy && tab !== 'premios' && (
+          {!esHoy && tab !== 'premios' && !vistaMes && (
             <div className="flex items-center justify-center gap-[6px] py-[6px] bg-[#12101c] border-b border-white/[0.05] flex-shrink-0 text-[#8f86c9]">
               <IconLock /><span className="text-[10px] font-bold tracking-[0.02em]">Viendo {etiquetaCorta(selDia)} · sólo lectura</span>
             </div>
@@ -1003,9 +1014,13 @@
                   })}
                 </div>
                 {notasVista === 'mes' && (
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[12px] font-bold text-[#d3d6dd]">{nombreMes}</span>
-                    <span className="text-[10px] font-bold text-[#5b6270]">{notasMes.length} nota{notasMes.length === 1 ? '' : 's'}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <button onClick={() => cambiarMes(-1)} className="w-9 h-9 rounded-lg flex items-center justify-center text-[#8b93a3] bg-white/[0.04] active:scale-90 transition-all flex-shrink-0"><IconChevron dir="left" /></button>
+                    <div className="flex flex-col items-center min-w-0">
+                      <span className="text-[13px] font-bold text-[#d3d6dd] capitalize">{nombreMes}</span>
+                      <span className="text-[10px] font-bold text-[#5b6270]">{notasMes.length} nota{notasMes.length === 1 ? '' : 's'}</span>
+                    </div>
+                    <button onClick={() => cambiarMes(1)} disabled={mesEsActual} className="w-9 h-9 rounded-lg flex items-center justify-center transition-all active:scale-90 flex-shrink-0" style={{ color: mesEsActual ? '#33343d' : '#8b93a3', background: mesEsActual ? 'transparent' : 'rgba(255,255,255,0.04)' }}><IconChevron dir="right" /></button>
                   </div>
                 )}
                 {notasLista.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">{notasVista === 'mes' ? 'Sin notas este mes.' : (esHoy ? 'Escribe tu primera nota del día abajo.' : 'Sin notas este día.')}</div>}
