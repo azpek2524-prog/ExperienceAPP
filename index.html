@@ -234,6 +234,8 @@
       const [editandoRec, setEditandoRec] = useState(null);
       const [ajustesAbierto, setAjustesAbierto] = useState(false);
       const [avisoPenal, setAvisoPenal] = useState(0);
+      const [avisoNiveles, setAvisoNiveles] = useState(0);
+      const [avisoDias, setAvisoDias] = useState(0);
       const [floaters, setFloaters] = useState([]);
       const fileRef = useRef(null);
       const importRef = useRef(null);
@@ -247,19 +249,38 @@
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
       }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
 
-      // ---- Al abrir en un día nuevo: penalizar las diarias que no completaste el último día activo ----
+      // ---- Al abrir: penalizar CADA día perdido (sin actividad) desde la última vez.
+      //      La penalización se acumula y, si la vida se acaba, BAJAS DE NIVEL. ----
       useEffect(() => {
-        if (ultimoDia && ultimoDia < todayKey && diarias.length > 0) {
-          let dmg = 0;
+        if (ultimoDia && ultimoDia < todayKey) {
           const bal0 = G.balance || PRESETS.normal;
-          diarias.forEach(d => {
-            if (!existe(d, ultimoDia) || !enDia(d, ultimoDia)) return; // sólo si existía y estaba programada ese día
-            const hecha = diariaLog[d.id] && diariaLog[d.id][ultimoDia];
-            if (!hecha) dmg += (bal0[d.dificultad || 'media'] || PRESETS.normal.media).dano;
-          });
-          if (dmg > 0) {
-            setHp(h => Math.max(1, h - dmg)); // nunca mata por ausencia; deja al menos 1
-            setAvisoPenal(dmg);
+          const danoDe = (d) => (bal0[d.dificultad || 'media'] || PRESETS.normal.media).dano;
+          const BASE_INACTIVIDAD = 10; // castigo mínimo por un día sin hacer nada
+          let total = 0, dias = 0;
+          let d = parseKey(ultimoDia), guard = 0;
+          while (dk(d) < todayKey && guard < 60) { // desde la última vez hasta ayer (máx 60 días)
+            const D = dk(d);
+            const activo = (xpPorDia[D] || 0) > 0;
+            if (!activo) { // día sin actividad -> se penaliza
+              let danoDia = 0;
+              diarias.forEach(x => {
+                if (existe(x, D) && enDia(x, D) && !(diariaLog[x.id] && diariaLog[x.id][D])) danoDia += danoDe(x);
+              });
+              if (danoDia === 0) danoDia = BASE_INACTIVIDAD; // sin diarias ese día -> castigo base
+              total += danoDia; dias += 1;
+            }
+            d.setDate(d.getDate() + 1); guard += 1;
+          }
+          if (total > 0) {
+            // Aplica el daño; cada 100 de daño que pasa de tu vida = 1 nivel menos (con 100 de colchón).
+            let h = hp - total, n = nivel;
+            while (h < 1 && n > 1) { n -= 1; h += 100; }
+            if (h < 1) h = 1; // en nivel 1 ya no bajas más; te quedas con 1 de vida
+            setHp(Math.round(h));
+            setNivel(n);
+            setAvisoPenal(total);
+            setAvisoNiveles(nivel - n);
+            setAvisoDias(dias);
           }
         }
         setUltimoDia(todayKey);
@@ -792,11 +813,11 @@
             </div>
           )}
 
-          {/* ===== AVISO PENALIZACIÓN POR DIARIAS SIN CUMPLIR ===== */}
+          {/* ===== AVISO PENALIZACIÓN POR DÍAS SIN ACTIVIDAD ===== */}
           {avisoPenal > 0 && (
             <div className="flex items-center justify-between px-4 py-[8px] flex-shrink-0" style={{ background: '#2a1620', borderBottom: '1px solid rgba(244,63,94,0.3)' }}>
-              <span className="text-[11px] font-bold text-[#fb7185]">−{avisoPenal} de vida por diarias que no completaste</span>
-              <button onClick={() => setAvisoPenal(0)} className="text-[#fb7185] text-xs font-bold">✕</button>
+              <span className="text-[11px] font-bold text-[#fb7185]">−{avisoPenal} de vida{avisoNiveles > 0 ? ' · bajaste ' + avisoNiveles + ' nivel' + (avisoNiveles === 1 ? '' : 'es') : ''} por {avisoDias} día{avisoDias === 1 ? '' : 's'} sin actividad</span>
+              <button onClick={() => { setAvisoPenal(0); setAvisoNiveles(0); setAvisoDias(0); }} className="text-[#fb7185] text-xs font-bold flex-shrink-0 ml-2">✕</button>
             </div>
           )}
 
