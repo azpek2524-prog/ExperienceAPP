@@ -353,17 +353,20 @@
       // para que al deshacer se revierta idéntico. 'revertir' resta ese mismo efecto.
       const aplicar = (n) => {
         const totalAntes = (nivel - 1) * 100 + xp;
-        const totalDesp = Math.max(0, totalAntes + (n.xp || 0));
-        const hpDesp = Math.max(0, Math.min(100, hp + (n.hp || 0)));
+        let total = Math.max(0, totalAntes + (n.xp || 0));
+        let h = hp + (n.hp || 0);
+        // Si el daño deja la vida bajo 0, el excedente BAJA DE NIVEL (100 de daño = 1 nivel, con 100 de colchón de vida)
+        while (h < 0 && total >= 100) { total -= 100; h += 100; }
+        h = Math.max(0, Math.min(100, h));
         const oroDesp = Math.max(0, oro + (n.oro || 0));
-        setNivel(Math.floor(totalDesp / 100) + 1);
-        setXp(totalDesp % 100);
-        setHp(hpDesp);
+        setNivel(Math.floor(total / 100) + 1);
+        setXp(total % 100);
+        setHp(h);
         setOro(oroDesp);
         const dia = n.dia || todayKey;
         if (n.xpDia) setXpPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.xpDia) }));
         if (n.tareas) setTareasPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.tareas) }));
-        return { dTotal: totalDesp - totalAntes, dHp: hpDesp - hp, dOro: oroDesp - oro, dia, dXpDia: n.xpDia || 0, dTareas: n.tareas || 0 };
+        return { dTotal: total - totalAntes, dHp: h - hp, dOro: oroDesp - oro, dia, dXpDia: n.xpDia || 0, dTareas: n.tareas || 0 };
       };
       const revertir = (ef) => {
         if (!ef) return;
@@ -410,7 +413,8 @@
         } else {
           const ef = aplicar({ hp: -v.dano, dia: todayKey });
           pushEfecto('hn:' + id, ef);
-          addFloater('−' + v.dano + ' HP', '#fb7185');
+          if (ef.dTotal < 0) addFloater('¡Bajaste de nivel!', '#fb7185');
+          else addFloater('−' + v.dano + ' HP', '#fb7185');
           setHabitNegLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
         }
       };
@@ -429,7 +433,7 @@
         if (!esHoy || countHabitoNeg(id) <= 0) return;
         const ef = popEfecto('hn:' + id) || { dHp: -valDe(habitos.find(x => x.id === id)).dano };
         revertir(ef);
-        addFloater('+' + Math.abs(ef.dHp || 0) + ' HP', '#34d399');
+        addFloater(ef.dTotal < 0 ? 'Nivel recuperado' : '+' + Math.abs(ef.dHp || 0) + ' HP', '#34d399');
         setHabitNegLog(l => bajarConteo(l, id));
       };
 
