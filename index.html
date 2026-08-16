@@ -233,6 +233,9 @@
       const [nuevaRecCosto, setNuevaRecCosto] = useState('');
       const [editandoRec, setEditandoRec] = useState(null);
       const [ajustesAbierto, setAjustesAbierto] = useState(false);
+      const [transfer, setTransfer] = useState(null);        // null | 'copiar' | 'pegar'
+      const [textoTransfer, setTextoTransfer] = useState(''); // datos a copiar
+      const [textoPegar, setTextoPegar] = useState('');       // datos pegados
       const [avisoPenal, setAvisoPenal] = useState(0);
       const [avisoNiveles, setAvisoNiveles] = useState(0);
       const [avisoDias, setAvisoDias] = useState(0);
@@ -576,9 +579,10 @@
       };
 
       // ---- Respaldo: exportar / importar ----
+      const construirRespaldo = () => ({ nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _exportado: new Date().toISOString(), _version: 3 });
+      const esRespaldoValido = (data) => data && typeof data === 'object' && !Array.isArray(data) && (('habitos' in data) || ('notas' in data));
       const exportarDatos = () => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _exportado: new Date().toISOString(), _version: 3 };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(construirRespaldo(), null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = 'lifetrack-respaldo-' + todayKey + '.json';
@@ -592,8 +596,7 @@
         r.onload = ev => {
           try {
             const data = JSON.parse(ev.target.result);
-            if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('inválido');
-            if (!('habitos' in data) && !('notas' in data)) throw new Error('inválido');
+            if (!esRespaldoValido(data)) throw new Error('inválido');
             localStorage.setItem(LS_KEY, JSON.stringify(data));
             location.reload();
           } catch (err) {
@@ -602,6 +605,23 @@
         };
         r.readAsText(f);
         e.target.value = '';
+      };
+      // Traspaso por texto (copiar en un dispositivo, pegar en otro)
+      const abrirCopiar = () => { setTextoTransfer(JSON.stringify(construirRespaldo())); setTransfer('copiar'); };
+      const copiarPortapapeles = async () => {
+        try { await navigator.clipboard.writeText(textoTransfer); addFloater('Datos copiados ✓', '#34d399'); }
+        catch (err) { addFloater('Selecciona y copia manualmente', '#f5b23e'); }
+      };
+      const cargarDesdeTexto = () => {
+        try {
+          const data = JSON.parse((textoPegar || '').trim());
+          if (!esRespaldoValido(data)) throw new Error('inválido');
+          if (!window.confirm('Esto REEMPLAZARÁ los datos de este dispositivo con los pegados. ¿Continuar?')) return;
+          localStorage.setItem(LS_KEY, JSON.stringify(data));
+          location.reload();
+        } catch (err) {
+          alert('Los datos pegados no son un respaldo válido de Life Track. Copia de nuevo el texto completo.');
+        }
       };
 
       // ---- Reporte legible en PDF ----
@@ -876,8 +896,16 @@
 
                 <div className={card + " p-4 flex flex-col gap-[14px]"}>
                   <div>
-                    <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#f5b23e]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Copia de seguridad</span></div>
-                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Guarda un archivo con <b className="text-[#8b93a3]">todos</b> tus datos y restáuralo cuando quieras (si cambias de teléfono o limpias el navegador). Este archivo es para la app, no para leerlo.</p>
+                    <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#34d399]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Pasar datos a otro dispositivo</span></div>
+                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">La forma más fácil: en este dispositivo toca <b className="text-[#8b93a3]">Copiar datos</b>, envíatelos por WhatsApp o notas, y en el otro dispositivo (tu compu) abre la app y toca <b className="text-[#8b93a3]">Pegar datos</b>.</p>
+                    <div className="flex gap-2">
+                      <button onClick={abrirCopiar} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#231600] active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#34d399,#10b981)', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}>Copiar datos</button>
+                      <button onClick={() => { setTextoPegar(''); setTransfer('pegar'); }} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Pegar datos</button>
+                    </div>
+                  </div>
+                  <div className="border-t border-white/[0.06] pt-[14px]">
+                    <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#f5b23e]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Copia de seguridad (archivo)</span></div>
+                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Guarda un archivo con <b className="text-[#8b93a3]">todos</b> tus datos y restáuralo cuando quieras (si cambias de teléfono o limpias el navegador).</p>
                     <div className="flex gap-2">
                       <button onClick={exportarDatos} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#c4b5fd] active:scale-95 transition-all" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>Exportar copia</button>
                       <button onClick={() => importRef.current && importRef.current.click()} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Restaurar</button>
@@ -1242,6 +1270,31 @@
                 </div>
 
                 <button onClick={guardarDiariaEdit} className="w-full py-[11px] rounded-lg text-white text-[13px] font-bold" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>Guardar cambios</button>
+              </div>
+            </div>
+          )}
+
+          {/* ===== MODAL TRASPASO DE DATOS ===== */}
+          {transfer && (
+            <div className="absolute inset-0 z-[70] flex items-end" style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(6px)' }} onClick={() => setTransfer(null)}>
+              <div onClick={e => e.stopPropagation()} className="w-full p-6 border-t border-white/10 flex flex-col gap-3" style={{ background: '#12121a', borderRadius: '28px 28px 0 0', maxHeight: '86%', animation: 'slideUp .3s ease' }}>
+                <div className="flex justify-between items-center gap-3">
+                  <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0">{transfer === 'copiar' ? 'Copiar mis datos' : 'Pegar datos'}</h2>
+                  <button onClick={() => setTransfer(null)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
+                </div>
+                {transfer === 'copiar' ? (
+                  <>
+                    <p className="text-[12px] text-[#8b93a3] leading-relaxed m-0">Toca <b className="text-[#c4b5fd]">Copiar al portapapeles</b> y envíate este texto a ti mismo (WhatsApp, Notas, correo). En tu otro dispositivo, abre la app → Panel → <b className="text-[#c4b5fd]">Pegar datos</b>.</p>
+                    <textarea readOnly value={textoTransfer} onFocus={e => e.target.select()} className="w-full h-40 bg-[#0c0c14] border border-white/10 rounded-lg p-3 text-[10px] text-[#8b93a3] mono outline-none resize-none" />
+                    <button onClick={copiarPortapapeles} className="w-full py-[11px] rounded-lg text-[#231600] text-[13px] font-bold" style={{ background: 'linear-gradient(135deg,#34d399,#10b981)' }}>Copiar al portapapeles</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[12px] text-[#8b93a3] leading-relaxed m-0">Pega aquí el texto que copiaste en tu otro dispositivo y toca <b className="text-[#c4b5fd]">Cargar datos</b>. Esto reemplazará los datos de <b className="text-[#fb7185]">este</b> dispositivo.</p>
+                    <textarea value={textoPegar} onChange={e => setTextoPegar(e.target.value)} placeholder="Pega aquí tus datos..." className="w-full h-40 bg-[#0c0c14] border border-white/10 rounded-lg p-3 text-[10px] text-[#c2c6cf] mono outline-none resize-none focus:border-[#7c73f0]" />
+                    <button onClick={cargarDesdeTexto} disabled={!textoPegar.trim()} className="w-full py-[11px] rounded-lg text-white text-[13px] font-bold transition-all" style={{ background: textoPegar.trim() ? 'linear-gradient(135deg,#7c73f0,#a855f7)' : 'rgba(255,255,255,0.06)', opacity: textoPegar.trim() ? 1 : 0.5 }}>Cargar datos</button>
+                  </>
+                )}
               </div>
             </div>
           )}
