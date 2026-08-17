@@ -863,6 +863,7 @@
 
       // ---- Derivados de la vista ----
       const card = "bg-[#101019] border border-[rgba(129,120,241,0.16)] rounded-[10px]";
+      const rejilla = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-[10px] items-start"; // varias columnas en PC
       const showInput = (esHoy && (['habitos', 'diarias', 'pendientes'].includes(tab) || (tab === 'notas' && notasVista === 'dia'))) || tab === 'premios';
       const labelMap = { habitos: 'hábitos', diarias: 'diarias', pendientes: 'tareas' };
       const TIPOS = [
@@ -892,7 +893,7 @@
       const TagDif = ({ it }) => { const d = difDe(it); return <span className="text-[9px] font-bold" style={{ color: d.c }}>● {d.label}</span>; };
 
       return (
-        <div className="max-w-md mx-auto h-screen flex flex-col bg-[#08080c] text-[#e7e9ee] relative overflow-hidden select-none antialiased">
+        <div className="w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl mx-auto h-screen flex flex-col bg-[#08080c] text-[#e7e9ee] relative overflow-hidden select-none antialiased">
 
           {/* ===== HEADER / HUD ===== */}
           <header className="px-[18px] pt-4 pb-4 bg-[#0b0b11] border-b border-white/[0.06] flex-shrink-0">
@@ -1001,9 +1002,9 @@
           <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : (tab === 'diarias' ? 'pb-56' : (tab === 'habitos' ? 'pb-48' : (tab === 'notas' ? 'pb-40' : (tab === 'premios' ? 'pb-32' : 'pb-36')))))} style={{ WebkitOverflowScrolling: 'touch' }}>
 
             {tab === 'dashboard' && (
-              <div className="flex flex-col gap-[14px] anim-fade">
-                <h2 className="text-[17px] font-extrabold text-[#f2f3f6] m-0 tracking-[-0.01em]">Resumen · {etiquetaFecha(selDia)}</h2>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-[14px] items-start anim-fade">
+                <h2 className="lg:col-span-2 text-[17px] font-extrabold text-[#f2f3f6] m-0 tracking-[-0.01em]">Resumen · {etiquetaFecha(selDia)}</h2>
+                <div className="lg:col-span-2 grid grid-cols-2 gap-3">
                   <div className={card + " p-4 flex flex-col gap-[10px]"}>
                     <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#a855f7]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">XP del día</span></div>
                     <span className="mono text-[32px] font-extrabold leading-none text-[#c4b5fd]">{xpDia}</span>
@@ -1013,7 +1014,7 @@
                     <span className="mono text-[32px] font-extrabold leading-none text-[#6ee7b7]">{tareasDia}</span>
                   </div>
                 </div>
-                <div className={card + " p-[18px]"}>
+                <div className={card + " lg:col-span-2 p-[18px]"}>
                   <div className="flex justify-between items-center mb-[18px]">
                     <h3 className="text-[13px] font-bold text-[#d3d6dd] m-0">Productividad semanal</h3>
                     <span className="text-[10px] text-[#5b6270] font-semibold">7 días</span>
@@ -1107,8 +1108,8 @@
             )}
 
             {tab === 'habitos' && (
-              <div className="flex flex-col gap-[10px] anim-fade">
-                {habitosDelDia.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">{habitos.length === 0 ? 'Añade tu primer hábito abajo.' : 'No había hábitos este día.'}</div>}
+              <div className={rejilla + " anim-fade"}>
+                {habitosDelDia.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{habitos.length === 0 ? 'Añade tu primer hábito abajo.' : 'No había hábitos este día.'}</div>}
                 {habitosDelDia.map(h => {
                   const veces = countHabito(h.id);
                   const vecesNeg = countHabitoNeg(h.id);
@@ -1156,8 +1157,8 @@
             )}
 
             {tab === 'diarias' && (
-              <div className="flex flex-col gap-[10px] anim-fade">
-                {diariasDelDia.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">{diarias.length === 0 ? 'Añade tu primera tarea diaria abajo.' : 'No hay diarias programadas para este día.'}</div>}
+              <div className={rejilla + " anim-fade"}>
+                {diariasDelDia.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{diarias.length === 0 ? 'Añade tu primera tarea diaria abajo.' : 'No hay diarias programadas para este día.'}</div>}
                 {diariasDelDia.map(d => {
                   const done = hechoDiaria(d.id);
                   return (
@@ -1187,8 +1188,8 @@
             )}
 
             {tab === 'pendientes' && (
-              <div className="flex flex-col gap-[10px] anim-fade">
-                {!esHoy && <div className="text-center py-2 text-[#5b6270] text-[11px] italic">Tus tareas activas se gestionan en “Hoy”. Aquí abajo verás lo que completaste este día.</div>}
+              <div className={rejilla + " anim-fade"}>
+                {!esHoy && <div className="col-span-full text-center py-2 text-[#5b6270] text-[11px] italic">Tus tareas activas se gestionan en “Hoy”. Aquí abajo verás lo que completaste este día.</div>}
                 {esHoy && pendientesActivas.map(p => (
                   <div key={p.id} className={card + " p-[14px] flex items-center justify-between gap-[10px]"}>
                     <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -1202,10 +1203,10 @@
                   </div>
                 ))}
                 {esHoy && pendientesActivas.length === 0 && (
-                  <div className="text-center py-11 text-[#5b6270] text-sm">Todo bajo control. Sin tareas pendientes.</div>
+                  <div className="col-span-full text-center py-11 text-[#5b6270] text-sm">Todo bajo control. Sin tareas pendientes.</div>
                 )}
                 {!esHoy && archivoDia.length === 0 && (
-                  <div className="text-center py-11 text-[#5b6270] text-sm italic">No completaste tareas este día.</div>
+                  <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">No completaste tareas este día.</div>
                 )}
                 {!esHoy && archivoDia.map(p => (
                   <div key={p.id} className="p-[14px] rounded-[10px] flex items-center gap-3 bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.72 }}>
@@ -1217,9 +1218,9 @@
             )}
 
             {tab === 'archivo' && (
-              <div className="flex flex-col gap-[10px] anim-fade">
+              <div className={rejilla + " anim-fade"}>
                 {archivoDia.length === 0 && (
-                  <div className="text-center py-11 text-[#5b6270] text-sm italic">{esHoy ? 'Tus victorias de hoy aparecerán aquí.' : 'Sin victorias registradas este día.'}</div>
+                  <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{esHoy ? 'Tus victorias de hoy aparecerán aquí.' : 'Sin victorias registradas este día.'}</div>
                 )}
                 {archivoDia.map(p => (
                   <div key={p.id} className="p-[14px] rounded-[10px] flex items-center justify-between gap-[10px] bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.85 }}>
@@ -1238,8 +1239,8 @@
             )}
 
             {tab === 'notas' && (
-              <div className="flex flex-col gap-[10px] anim-fade">
-                <div className="flex gap-[6px]">
+              <div className={rejilla + " anim-fade"}>
+                <div className="col-span-full flex gap-[6px]">
                   {[{ id: 'dia', label: 'Por día' }, { id: 'mes', label: 'Del mes' }].map(v => {
                     const sel = notasVista === v.id;
                     return (
@@ -1252,7 +1253,7 @@
                   })}
                 </div>
                 {notasVista === 'mes' && (
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="col-span-full flex items-center justify-between gap-2">
                     <button onClick={() => cambiarMes(-1)} className="w-9 h-9 rounded-lg flex items-center justify-center text-[#8b93a3] bg-white/[0.04] active:scale-90 transition-all flex-shrink-0"><IconChevron dir="left" /></button>
                     <div className="flex flex-col items-center min-w-0">
                       <span className="text-[13px] font-bold text-[#d3d6dd] capitalize">{nombreMes}</span>
@@ -1261,7 +1262,7 @@
                     <button onClick={() => cambiarMes(1)} disabled={mesEsActual} className="w-9 h-9 rounded-lg flex items-center justify-center transition-all active:scale-90 flex-shrink-0" style={{ color: mesEsActual ? '#33343d' : '#8b93a3', background: mesEsActual ? 'transparent' : 'rgba(255,255,255,0.04)' }}><IconChevron dir="right" /></button>
                   </div>
                 )}
-                {notasLista.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">{notasVista === 'mes' ? 'Sin notas este mes.' : (esHoy ? 'Escribe tu primera nota del día abajo.' : 'Sin notas este día.')}</div>}
+                {notasLista.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{notasVista === 'mes' ? 'Sin notas este mes.' : (esHoy ? 'Escribe tu primera nota del día abajo.' : 'Sin notas este día.')}</div>}
                 {notasLista.map(n => {
                   const editable = esHoy && n.fecha === todayKey;
                   return (
@@ -1288,12 +1289,12 @@
             )}
 
             {tab === 'premios' && (
-              <div className="flex flex-col gap-[10px] anim-fade">
-                <div className={card + " p-[14px] flex items-center justify-between"}>
+              <div className={rejilla + " anim-fade"}>
+                <div className={card + " col-span-full p-[14px] flex items-center justify-between"}>
                   <span className="text-[11px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">Tu oro disponible</span>
                   <span className="flex items-center gap-[6px] mono text-[18px] font-extrabold text-[#f5b23e]"><IconCoin size={16} /> {oro}</span>
                 </div>
-                {recompensas.length === 0 && <div className="text-center py-11 text-[#5b6270] text-sm italic">Crea tu primer premio abajo.</div>}
+                {recompensas.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">Crea tu primer premio abajo.</div>}
                 {recompensas.map(r => {
                   const alcanza = oro >= r.costo;
                   return (
