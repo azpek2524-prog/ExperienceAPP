@@ -66,11 +66,40 @@
 
     // ---------- Persistencia (localStorage) ----------
     const LS_KEY = 'lifetrack_v3';
+    const FB_CONFIG_KEY = 'lifetrack_fb_config'; // config de Firebase (público, no secreto)
     const cargar = () => {
       try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; }
       catch (e) { return {}; }
     };
     const G = cargar();
+    const cargarConfigFB = () => { try { return JSON.parse(localStorage.getItem(FB_CONFIG_KEY)); } catch (e) { return null; } };
+
+    // Carga los SDK de Firebase (compat) sólo cuando se necesitan
+    const cargarFirebaseSDK = () => new Promise((resolve, reject) => {
+      if (window.firebase && window.firebase.firestore) return resolve();
+      const urls = [
+        'https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js',
+        'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js',
+        'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js',
+      ];
+      let i = 0;
+      const next = () => {
+        if (i >= urls.length) return resolve();
+        const s = document.createElement('script');
+        s.src = urls[i++];
+        s.onload = next;
+        s.onerror = () => reject(new Error('No se pudo cargar Firebase (revisa tu conexión)'));
+        document.head.appendChild(s);
+      };
+      next();
+    });
+    // Extrae los campos de la config pegada desde la consola de Firebase (sin ejecutar código)
+    const parsearConfigFB = (txt) => {
+      const get = (k) => { const m = (txt || '').match(new RegExp(k + '\\s*:\\s*["\\x27]([^"\\x27]+)["\\x27]')); return m ? m[1] : ''; };
+      const cfg = { apiKey: get('apiKey'), authDomain: get('authDomain'), projectId: get('projectId'), storageBucket: get('storageBucket'), messagingSenderId: get('messagingSenderId'), appId: get('appId') };
+      if (!cfg.apiKey || !cfg.projectId) throw new Error('config incompleta');
+      return cfg;
+    };
 
     // ---------- Icons (SVG limpios) ----------
     const Ico = ({ d, size = 20, sw = 2, children }) => (
@@ -236,6 +265,16 @@
       const [transfer, setTransfer] = useState(null);        // null | 'copiar' | 'pegar'
       const [textoTransfer, setTextoTransfer] = useState(''); // datos a copiar
       const [textoPegar, setTextoPegar] = useState('');       // datos pegados
+      // ---- Sincronización en la nube (Firebase) ----
+      const [sync, setSync] = useState(() => (cargarConfigFB() ? 'desconectado' : 'sinConfig')); // sinConfig|desconectado|conectando|conectado
+      const [syncEmail, setSyncEmail] = useState('');
+      const [syncPass, setSyncPass] = useState('');
+      const [syncError, setSyncError] = useState('');
+      const [syncUser, setSyncUser] = useState('');
+      const [configAbierto, setConfigAbierto] = useState(false);
+      const [configTexto, setConfigTexto] = useState('');
+      const fbRef = useRef({ app: null, auth: null, db: null, user: null, unsub: null });
+      const pushTimer = useRef(null);
       const [avisoPenal, setAvisoPenal] = useState(0);
       const [avisoNiveles, setAvisoNiveles] = useState(0);
       const [avisoDias, setAvisoDias] = useState(0);
@@ -247,9 +286,15 @@
       const esHoy = selDia === todayKey;
 
       // ---- Guardado automático ----
+      const primerSave = useRef(true);
       useEffect(() => {
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas };
+        // _cambio: marca de tiempo del último cambio REAL del usuario (no se toca al abrir),
+        // para que la sincronización sepa qué versión es más nueva.
+        const cambio = primerSave.current ? (G._cambio || 0) : Date.now();
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _cambio: cambio };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
+        if (!primerSave.current) programarPush();
+        primerSave.current = false;
       }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
 
       // ---- Al abrir: penalizar CADA día perdido (sin actividad) desde la última vez.
@@ -624,6 +669,109 @@
         }
       };
 
+      // ---- Sincronización en la nube (Firebase) ----
+      // Sube los datos locales a la nube (con su marca _cambio)
+      const pushCloud = () => {
+        const R = fbRef.current;
+        if (!R.db || !R.user) return;
+        let data; try { data = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return; }
+        const sinFoto = { ...data }; delete sinFoto.fotoPerfil; // la foto no se sube (pesa demasiado para Firestore); se queda local
+        R.db.collection('usuarios').doc(R.user.uid).set(sinFoto).catch(() => {});
+      };
+      // Push con retardo (para no escribir en cada tecla)
+      const programarPush = () => {
+        const R = fbRef.current;
+        if (!R.db || !R.user) return;
+        if (pushTimer.current) clearTimeout(pushTimer.current);
+        pushTimer.current = setTimeout(pushCloud, 1500);
+      };
+      // Aplica datos que llegan de la nube (más nuevos): guarda y recarga (conservando la foto local)
+      const aplicarRemoto = (remoto) => {
+        let local = {}; try { local = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) {}
+        const merged = { ...remoto, fotoPerfil: local.fotoPerfil };
+        try { localStorage.setItem(LS_KEY, JSON.stringify(merged)); } catch (e) {}
+        location.reload();
+      };
+      // Reacciona a cambios en la nube
+      const alRecibirDoc = (snap) => {
+        if (!snap || !snap.exists) { pushCloud(); return; } // nube vacía -> la sembramos
+        const remoto = snap.data();
+        let local; try { local = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { local = {}; }
+        const rc = remoto._cambio || 0, lc = local._cambio || 0;
+        if (rc > lc) aplicarRemoto(remoto);       // la nube es más nueva -> traer
+        else if (lc > rc) pushCloud();            // lo local es más nuevo -> subir
+      };
+      // Arranca Firebase con la config guardada y engancha el login
+      const iniciarFirebase = async () => {
+        const cfg = cargarConfigFB();
+        if (!cfg) { setSync('sinConfig'); return; }
+        try {
+          await cargarFirebaseSDK();
+          const R = fbRef.current;
+          if (!R.app) R.app = window.firebase.initializeApp(cfg);
+          R.auth = window.firebase.auth();
+          R.db = window.firebase.firestore();
+          R.auth.onAuthStateChanged((user) => {
+            if (R.unsub) { R.unsub(); R.unsub = null; }
+            if (user) {
+              R.user = user;
+              setSyncUser(user.email || 'tu cuenta');
+              setSync('conectado');
+              R.unsub = R.db.collection('usuarios').doc(user.uid).onSnapshot(alRecibirDoc, () => {});
+            } else {
+              R.user = null; setSyncUser(''); setSync('desconectado');
+            }
+          });
+        } catch (err) {
+          setSync('desconectado'); setSyncError('No se pudo conectar con Firebase. Revisa tu conexión.');
+        }
+      };
+      const guardarConfigFB = () => {
+        try {
+          const cfg = parsearConfigFB(configTexto);
+          localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(cfg));
+          setConfigAbierto(false); setConfigTexto(''); setSyncError('');
+          setSync('conectando'); iniciarFirebase();
+        } catch (err) {
+          setSyncError('No pude leer la configuración. Pega el bloque completo que te da Firebase (el que empieza con const firebaseConfig = {...}).');
+        }
+      };
+      const entrarSync = async (crear) => {
+        const R = fbRef.current;
+        setSyncError('');
+        if (!R.auth) { setSyncError('Primero configura Firebase.'); return; }
+        const email = (syncEmail || '').trim();
+        if (!email || (syncPass || '').length < 6) { setSyncError('Escribe tu email y una contraseña de al menos 6 caracteres.'); return; }
+        setSync('conectando');
+        try {
+          if (crear) await R.auth.createUserWithEmailAndPassword(email, syncPass);
+          else await R.auth.signInWithEmailAndPassword(email, syncPass);
+          setSyncPass('');
+        } catch (err) {
+          setSync('desconectado');
+          const c = err && err.code || '';
+          if (c === 'auth/email-already-in-use') setSyncError('Ese email ya tiene cuenta. Usa "Entrar" en vez de "Crear cuenta".');
+          else if (c === 'auth/invalid-credential' || c === 'auth/wrong-password' || c === 'auth/user-not-found') setSyncError('Email o contraseña incorrectos.');
+          else if (c === 'auth/weak-password') setSyncError('La contraseña debe tener al menos 6 caracteres.');
+          else if (c === 'auth/invalid-email') setSyncError('Ese email no es válido.');
+          else setSyncError('No se pudo entrar: ' + (err && err.message || 'error'));
+        }
+      };
+      const salirSync = () => { const R = fbRef.current; if (R.auth) R.auth.signOut(); };
+      const desconectarFirebase = () => {
+        const R = fbRef.current;
+        if (R.auth) R.auth.signOut().catch(() => {});
+        if (R.unsub) { R.unsub(); R.unsub = null; }
+        localStorage.removeItem(FB_CONFIG_KEY);
+        setSync('sinConfig'); setSyncUser('');
+      };
+
+      // Al abrir, si ya hay config guardada, conecta Firebase
+      useEffect(() => {
+        if (cargarConfigFB()) { setSync('conectando'); iniciarFirebase(); }
+      // eslint-disable-next-line
+      }, []);
+
       // ---- Reporte legible en PDF ----
       const descargarPDF = () => {
         const JsPDF = window.jspdf && window.jspdf.jsPDF;
@@ -894,10 +1042,43 @@
                   </div>
                 </div>
 
+                <div className={card + " p-4 flex flex-col gap-3"}>
+                  <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#38bdf8]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Sincronización en la nube</span></div>
+                  {sync === 'conectado' ? (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-[8px] h-[8px] rounded-full bg-[#34d399]" style={{ boxShadow: '0 0 8px #34d399' }}></span>
+                        <span className="text-[12px] font-bold text-[#d3d6dd]">Sincronizado</span>
+                      </div>
+                      <span className="text-[11px] text-[#6b7280]">Tus datos se guardan y sincronizan solos entre tus dispositivos con esta cuenta: <b className="text-[#8b93a3] break-words">{syncUser}</b></span>
+                      <button onClick={salirSync} className="mt-1 py-[9px] rounded-lg text-[12px] font-bold text-[#9aa1ad]" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Cerrar sesión en este dispositivo</button>
+                    </div>
+                  ) : sync === 'conectando' ? (
+                    <span className="text-[12px] text-[#8b93a3] py-2">Conectando…</span>
+                  ) : sync === 'sinConfig' ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[11px] text-[#6b7280] leading-relaxed m-0">Conecta la app a la nube para que tu progreso se sincronice <b className="text-[#8b93a3]">solo</b> entre tu celular y tu compu. Necesitas crear un proyecto gratis de Firebase (una vez).</p>
+                      <button onClick={() => { setConfigTexto(''); setSyncError(''); setConfigAbierto(true); }} className="py-[10px] rounded-lg text-[12px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#38bdf8,#3b82f6)', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}>Configurar Firebase</button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[11px] text-[#6b7280] leading-relaxed m-0">Entra con tu email y contraseña (los mismos en todos tus dispositivos). Si es tu primera vez, usa <b className="text-[#8b93a3]">Crear cuenta</b>.</p>
+                      <input value={syncEmail} onChange={e => setSyncEmail(e.target.value)} type="email" autoComplete="email" placeholder="tu@email.com" className="bg-[#0c0c14] border border-white/10 rounded-lg px-[12px] py-[10px] text-[13px] text-[#f2f3f6] outline-none focus:border-[#38bdf8]" />
+                      <input value={syncPass} onChange={e => setSyncPass(e.target.value)} type="password" autoComplete="current-password" placeholder="Contraseña (mín. 6)" className="bg-[#0c0c14] border border-white/10 rounded-lg px-[12px] py-[10px] text-[13px] text-[#f2f3f6] outline-none focus:border-[#38bdf8]" />
+                      <div className="flex gap-2">
+                        <button onClick={() => entrarSync(false)} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#38bdf8,#3b82f6)' }}>Entrar</button>
+                        <button onClick={() => entrarSync(true)} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad]" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Crear cuenta</button>
+                      </div>
+                      <button onClick={desconectarFirebase} className="text-[10px] text-[#5b6270] underline self-start">Cambiar configuración de Firebase</button>
+                    </div>
+                  )}
+                  {syncError && <span className="text-[11px] font-bold text-[#fb7185]">{syncError}</span>}
+                </div>
+
                 <div className={card + " p-4 flex flex-col gap-[14px]"}>
                   <div>
                     <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#34d399]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Pasar datos a otro dispositivo</span></div>
-                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">La forma más fácil: en este dispositivo toca <b className="text-[#8b93a3]">Copiar datos</b>, envíatelos por WhatsApp o notas, y en el otro dispositivo (tu compu) abre la app y toca <b className="text-[#8b93a3]">Pegar datos</b>.</p>
+                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Sin nube: en este dispositivo toca <b className="text-[#8b93a3]">Copiar datos</b>, envíatelos por WhatsApp o notas, y en el otro dispositivo (tu compu) abre la app y toca <b className="text-[#8b93a3]">Pegar datos</b>.</p>
                     <div className="flex gap-2">
                       <button onClick={abrirCopiar} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#231600] active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#34d399,#10b981)', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}>Copiar datos</button>
                       <button onClick={() => { setTextoPegar(''); setTransfer('pegar'); }} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Pegar datos</button>
@@ -1270,6 +1451,30 @@
                 </div>
 
                 <button onClick={guardarDiariaEdit} className="w-full py-[11px] rounded-lg text-white text-[13px] font-bold" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>Guardar cambios</button>
+              </div>
+            </div>
+          )}
+
+          {/* ===== MODAL CONFIG FIREBASE ===== */}
+          {configAbierto && (
+            <div className="absolute inset-0 z-[70] flex items-end" style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(6px)' }} onClick={() => setConfigAbierto(false)}>
+              <div onClick={e => e.stopPropagation()} className="w-full p-6 border-t border-white/10 flex flex-col gap-3" style={{ background: '#12121a', borderRadius: '28px 28px 0 0', maxHeight: '90%', animation: 'slideUp .3s ease', overflowY: 'auto' }}>
+                <div className="flex justify-between items-center gap-3">
+                  <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0">Configurar Firebase</h2>
+                  <button onClick={() => setConfigAbierto(false)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
+                </div>
+                <div className="text-[11px] text-[#8b93a3] leading-relaxed flex flex-col gap-[6px]">
+                  <span className="font-bold text-[#c4b5fd]">Pasos (una sola vez):</span>
+                  <span>1. Entra a <b className="text-[#d3d6dd]">console.firebase.google.com</b> y crea un proyecto (gratis).</span>
+                  <span>2. En el proyecto: <b className="text-[#d3d6dd]">Build → Firestore Database → Crear</b> (modo producción).</span>
+                  <span>3. <b className="text-[#d3d6dd]">Build → Authentication → Sign-in method → Email/Password</b> → activar.</span>
+                  <span>4. En <b className="text-[#d3d6dd]">Configuración del proyecto ⚙ → Tus apps → Web (&lt;/&gt;)</b>, registra una app y copia el bloque <b className="text-[#d3d6dd]">firebaseConfig</b>.</span>
+                  <span>5. Pégalo aquí abajo:</span>
+                </div>
+                <textarea value={configTexto} onChange={e => setConfigTexto(e.target.value)} placeholder={'const firebaseConfig = {\n  apiKey: "…",\n  authDomain: "…",\n  projectId: "…",\n  ...\n};'} className="w-full h-32 bg-[#0c0c14] border border-white/10 rounded-lg p-3 text-[11px] text-[#c2c6cf] mono outline-none resize-none focus:border-[#38bdf8]" />
+                {syncError && <span className="text-[11px] font-bold text-[#fb7185]">{syncError}</span>}
+                <button onClick={guardarConfigFB} disabled={!configTexto.trim()} className="w-full py-[11px] rounded-lg text-white text-[13px] font-bold" style={{ background: configTexto.trim() ? 'linear-gradient(135deg,#38bdf8,#3b82f6)' : 'rgba(255,255,255,0.06)', opacity: configTexto.trim() ? 1 : 0.5 }}>Guardar y conectar</button>
+                <p className="text-[10px] text-[#5b6270] leading-relaxed m-0">Nota: esta configuración es pública (no es secreta). Tu privacidad la protegen las reglas de Firestore, que restringen cada cuenta a sus propios datos.</p>
               </div>
             </div>
           )}

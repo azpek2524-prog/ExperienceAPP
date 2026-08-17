@@ -48,6 +48,12 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
+  // No interceptar las llamadas EN VIVO de Firebase/Google (Firestore, Auth, etc.):
+  // deben ir siempre a la red, sin caché, o la sincronización se rompería.
+  // (Los SDK estáticos en gstatic.com sí se cachean normalmente.)
+  const host = (() => { try { return new URL(req.url).hostname; } catch (e) { return ''; } })();
+  if (/googleapis\.com$|firebaseio\.com$|identitytoolkit|firebaseinstallations|firebaseremoteconfig|\.firebaseapp\.com$/i.test(host)) return;
+
   const esNavegacion = req.mode === 'navigate' || req.destination === 'document';
 
   if (esNavegacion) {
