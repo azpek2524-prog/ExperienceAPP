@@ -28,11 +28,7 @@
   <style>
     * { -webkit-tap-highlight-color: transparent; }
     html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
-    body { margin: 0; background: radial-gradient(ellipse 90% 70% at 50% -10%, #171728 0%, #0a0a12 45%, #050508 100%); font-family: 'Inter', system-ui, sans-serif; }
-    /* En pantallas grandes (PC) la app se muestra como un panel centrado y enmarcado */
-    @media (min-width: 480px) {
-      #root > div { border-left: 1px solid rgba(255,255,255,0.07); border-right: 1px solid rgba(255,255,255,0.07); box-shadow: 0 0 60px rgba(0,0,0,0.6), 0 0 120px rgba(124,115,240,0.06); }
-    }
+    body { margin: 0; background: #050508; font-family: 'Inter', system-ui, sans-serif; }
     .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
     .hide-scrollbar::-webkit-scrollbar { display: none; }
     .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -76,7 +72,20 @@
       catch (e) { return {}; }
     };
     const G = cargar();
-    const cargarConfigFB = () => { try { return JSON.parse(localStorage.getItem(FB_CONFIG_KEY)); } catch (e) { return null; } };
+    // Configuración de Firebase ya integrada (es pública, no secreta). Así cualquier
+    // dispositivo pide directamente email y contraseña, sin el paso de "Configurar".
+    const CONFIG_FB_DEFECTO = {
+      apiKey: "AIzaSyAM_gbVab4ECGLmv38zWSudinRZKBj3H3Q",
+      authDomain: "experienceapp-f40af.firebaseapp.com",
+      projectId: "experienceapp-f40af",
+      storageBucket: "experienceapp-f40af.firebasestorage.app",
+      messagingSenderId: "866444950578",
+      appId: "1:866444950578:web:5f7a10c17214c4d33fd02b"
+    };
+    const cargarConfigFB = () => {
+      try { const c = JSON.parse(localStorage.getItem(FB_CONFIG_KEY)); if (c && c.apiKey) return c; } catch (e) {}
+      return CONFIG_FB_DEFECTO;
+    };
 
     // Carga los SDK de Firebase (compat) sólo cuando se necesitan
     const cargarFirebaseSDK = () => new Promise((resolve, reject) => {
@@ -863,7 +872,7 @@
 
       // ---- Derivados de la vista ----
       const card = "bg-[#101019] border border-[rgba(129,120,241,0.16)] rounded-[10px]";
-      const rejilla = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-[10px] items-start"; // varias columnas en PC
+      const rejilla = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-[10px] items-start"; // varias columnas en PC
       const showInput = (esHoy && (['habitos', 'diarias', 'pendientes'].includes(tab) || (tab === 'notas' && notasVista === 'dia'))) || tab === 'premios';
       const labelMap = { habitos: 'hábitos', diarias: 'diarias', pendientes: 'tareas' };
       const TIPOS = [
@@ -893,7 +902,7 @@
       const TagDif = ({ it }) => { const d = difDe(it); return <span className="text-[9px] font-bold" style={{ color: d.c }}>● {d.label}</span>; };
 
       return (
-        <div className="w-full max-w-md md:max-w-3xl lg:max-w-5xl xl:max-w-6xl mx-auto h-screen flex flex-col bg-[#08080c] text-[#e7e9ee] relative overflow-hidden select-none antialiased">
+        <div className="w-full h-screen flex flex-col bg-[#08080c] text-[#e7e9ee] relative overflow-hidden select-none antialiased">
 
           {/* ===== HEADER / HUD ===== */}
           <header className="px-[18px] pt-4 pb-4 bg-[#0b0b11] border-b border-white/[0.06] flex-shrink-0">
