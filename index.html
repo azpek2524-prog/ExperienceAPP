@@ -288,6 +288,8 @@
       const [configTexto, setConfigTexto] = useState('');
       const fbRef = useRef({ app: null, auth: null, db: null, user: null, unsub: null });
       const pushTimer = useRef(null);
+      const dirty = useRef(false);                                              // hay cambios locales sin subir
+      const visto = useRef((() => { try { return localStorage.getItem('lifetrack_visto') || ''; } catch (e) { return ''; } })()); // id de la última versión sincronizada
       const [avisoPenal, setAvisoPenal] = useState(0);
       const [avisoNiveles, setAvisoNiveles] = useState(0);
       const [avisoDias, setAvisoDias] = useState(0);
@@ -301,12 +303,13 @@
       // ---- Guardado automático ----
       const primerSave = useRef(true);
       useEffect(() => {
-        // _cambio: marca de tiempo del último cambio REAL del usuario (no se toca al abrir),
-        // para que la sincronización sepa qué versión es más nueva.
-        const cambio = primerSave.current ? (G._cambio || 0) : Date.now();
+        // _cambio: id ÚNICO de esta versión (no un reloj comparable). Sólo cambia con
+        // acciones reales del usuario (no al abrir). Sirve para detectar de forma fiable
+        // cuándo la versión de la nube es distinta a la que este dispositivo ya conoce.
+        const cambio = primerSave.current ? (G._cambio || '') : (Date.now() + '-' + Math.random().toString(36).slice(2, 8));
         const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _cambio: cambio };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-        if (!primerSave.current) programarPush();
+        if (!primerSave.current) { dirty.current = true; programarPush(); }
         primerSave.current = false;
       }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
 
@@ -683,36 +686,46 @@
       };
 
       // ---- Sincronización en la nube (Firebase) ----
-      // Sube los datos locales a la nube (con su marca _cambio)
+      const VISTO_KEY = 'lifetrack_visto';
+      // Sube los datos locales a la nube. Al confirmarse, marca esta versión como
+      // "vista" y limpia la bandera de cambios pendientes (si no llegó otro cambio).
       const pushCloud = () => {
         const R = fbRef.current;
         if (!R.db || !R.user) return;
         let data; try { data = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return; }
-        const sinFoto = { ...data }; delete sinFoto.fotoPerfil; // la foto no se sube (pesa demasiado para Firestore); se queda local
-        R.db.collection('usuarios').doc(R.user.uid).set(sinFoto).catch(() => {});
+        const v = data._cambio || '';
+        const sinFoto = { ...data }; delete sinFoto.fotoPerfil; // la foto no se sube (pesa demasiado); se queda local
+        R.db.collection('usuarios').doc(R.user.uid).set(sinFoto)
+          .then(() => {
+            visto.current = v; try { localStorage.setItem(VISTO_KEY, v); } catch (e) {}
+            let ahora; try { ahora = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { ahora = {}; }
+            if ((ahora._cambio || '') === v) dirty.current = false; // no hubo cambios nuevos mientras subía
+          })
+          .catch(() => {}); // sin conexión: Firestore reintenta al reconectar
       };
       // Push con retardo (para no escribir en cada tecla)
       const programarPush = () => {
         const R = fbRef.current;
         if (!R.db || !R.user) return;
         if (pushTimer.current) clearTimeout(pushTimer.current);
-        pushTimer.current = setTimeout(pushCloud, 1500);
+        pushTimer.current = setTimeout(pushCloud, 1200);
       };
-      // Aplica datos que llegan de la nube (más nuevos): guarda y recarga (conservando la foto local)
+      // Trae datos de la nube: guarda, recuerda la versión y recarga (conservando la foto local)
       const aplicarRemoto = (remoto) => {
         let local = {}; try { local = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) {}
         const merged = { ...remoto, fotoPerfil: local.fotoPerfil };
         try { localStorage.setItem(LS_KEY, JSON.stringify(merged)); } catch (e) {}
+        try { localStorage.setItem(VISTO_KEY, remoto._cambio || ''); } catch (e) {}
         location.reload();
       };
-      // Reacciona a cambios en la nube
+      // Reacciona a cambios en la nube (SIN comparar relojes)
       const alRecibirDoc = (snap) => {
-        if (!snap || !snap.exists) { pushCloud(); return; } // nube vacía -> la sembramos
+        if (!snap || !snap.exists) { pushCloud(); return; }   // nube vacía -> la sembramos
         const remoto = snap.data();
-        let local; try { local = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { local = {}; }
-        const rc = remoto._cambio || 0, lc = local._cambio || 0;
-        if (rc > lc) aplicarRemoto(remoto);       // la nube es más nueva -> traer
-        else if (lc > rc) pushCloud();            // lo local es más nuevo -> subir
+        const rv = remoto._cambio || '';
+        if (rv === visto.current) return;                     // ya conocemos esta versión (o es nuestro propio eco)
+        if (dirty.current) { pushCloud(); return; }           // tengo cambios locales sin subir -> gana lo mío, lo subo
+        aplicarRemoto(remoto);                                // versión nueva de otro dispositivo -> traer
       };
       // Control manual (por si el orden de conexión dejó datos desincronizados)
       const forzarSubir = () => {
@@ -720,11 +733,12 @@
         if (!R.db || !R.user) return;
         if (!window.confirm('Subir los datos de ESTE dispositivo a la nube. Reemplazará lo que haya en la nube y en tus otros dispositivos. ¿Continuar?')) return;
         let data; try { data = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return; }
-        data._cambio = Date.now(); // marca esta versión como la más nueva
+        const v = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        data._cambio = v; // nueva versión, marcada como la actual
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
         const sinFoto = { ...data }; delete sinFoto.fotoPerfil;
         R.db.collection('usuarios').doc(R.user.uid).set(sinFoto)
-          .then(() => addFloater('Datos subidos ✓', '#34d399'))
+          .then(() => { visto.current = v; dirty.current = false; try { localStorage.setItem(VISTO_KEY, v); } catch (e) {} addFloater('Datos subidos ✓', '#34d399'); })
           .catch(() => addFloater('Error al subir', '#fb7185'));
       };
       const forzarBajar = () => {
@@ -745,6 +759,9 @@
           if (!R.app) R.app = window.firebase.initializeApp(cfg);
           R.auth = window.firebase.auth();
           R.db = window.firebase.firestore();
+          // Persistencia offline: la app y sus escrituras funcionan sin internet y se
+          // sincronizan al reconectar (una sola vez por sesión).
+          if (!R.persist) { R.persist = true; try { R.db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch (e) {} }
           R.auth.onAuthStateChanged((user) => {
             if (R.unsub) { R.unsub(); R.unsub = null; }
             if (user) {
@@ -756,6 +773,11 @@
               R.user = null; setSyncUser(''); setSync('desconectado');
             }
           });
+          // Al recuperar internet, sube lo que haya quedado pendiente offline
+          if (!R.onlineListo) {
+            R.onlineListo = true;
+            window.addEventListener('online', () => { if (dirty.current) pushCloud(); });
+          }
         } catch (err) {
           setSync('desconectado'); setSyncError('No se pudo conectar con Firebase. Revisa tu conexión.');
         }
