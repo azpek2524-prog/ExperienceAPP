@@ -302,14 +302,25 @@
 
       // ---- Guardado automático ----
       const primerSave = useRef(true);
+      const interactuo = useRef(false); // ¿el usuario ya tocó/escribió algo? (distingue cambios reales de los del arranque)
+      // Marca interacción real del usuario (no cuenta abrir la app ni los efectos de arranque)
       useEffect(() => {
-        // _cambio: id ÚNICO de esta versión (no un reloj comparable). Sólo cambia con
-        // acciones reales del usuario (no al abrir). Sirve para detectar de forma fiable
-        // cuándo la versión de la nube es distinta a la que este dispositivo ya conoce.
-        const cambio = primerSave.current ? (G._cambio || '') : (Date.now() + '-' + Math.random().toString(36).slice(2, 8));
+        const marcar = () => { interactuo.current = true; };
+        window.addEventListener('pointerdown', marcar);
+        window.addEventListener('keydown', marcar);
+        return () => { window.removeEventListener('pointerdown', marcar); window.removeEventListener('keydown', marcar); };
+      }, []);
+      useEffect(() => {
+        // _cambio: id ÚNICO de la versión. SÓLO cambia con una acción real del usuario
+        // (después de que tocó/escribió algo), NUNCA al abrir. Así abrir la app no crea
+        // una "versión nueva" que dispare recargas en cadena entre dispositivos.
+        const bump = interactuo.current && !primerSave.current;
+        let cambio;
+        if (bump) { cambio = Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
+        else { cambio = G._cambio || ''; try { const p = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); if (p._cambio) cambio = p._cambio; } catch (e) {} }
         const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _cambio: cambio };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
-        if (!primerSave.current) { dirty.current = true; programarPush(); }
+        if (bump) { dirty.current = true; programarPush(); }
         primerSave.current = false;
       }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
 
