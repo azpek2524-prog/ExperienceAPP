@@ -721,17 +721,33 @@
         if (pushTimer.current) clearTimeout(pushTimer.current);
         pushTimer.current = setTimeout(pushCloud, 1200);
       };
-      // Trae datos de la nube: guarda, recuerda la versión y recarga (conservando la foto local)
+      // Aplica un estado completo a la app EN CALIENTE (sin recargar la página -> sin parpadeos)
+      const cargarEstado = (d) => {
+        if (!d) return;
+        interactuo.current = false; dirty.current = false; // aplicar remoto no es interacción del usuario
+        setNivel(d.nivel ?? 1); setHp(d.hp ?? 100); setXp(d.xp ?? 0); setOro(d.oro ?? 0);
+        if (d.fotoPerfil !== undefined) setFotoPerfil(d.fotoPerfil);
+        setXpPorDia(d.xpPorDia || {}); setTareasPorDia(d.tareasPorDia || {}); setDiasCompletados(d.diasCompletados || {});
+        setHabitLog(d.habitLog || {}); setHabitNegLog(d.habitNegLog || {}); setDiariaLog(d.diariaLog || {}); setEfectos(d.efectos || {});
+        if (d.ultimoDia) setUltimoDia(d.ultimoDia);
+        setModoBalance(d.modoBalance || 'normal'); setBalance(d.balance || PRESETS.normal);
+        setHabitos(d.habitos || []); setDiarias(d.diarias || []); setPendientes(d.pendientes || []);
+        setNotas(d.notas || []); setRecompensas(d.recompensas || []);
+      };
+      // Trae datos de la nube y los aplica en caliente (conservando la foto local)
       const aplicarRemoto = (remoto) => {
         let local = {}; try { local = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) {}
         const merged = { ...remoto, fotoPerfil: local.fotoPerfil };
         try { localStorage.setItem(LS_KEY, JSON.stringify(merged)); } catch (e) {}
         try { localStorage.setItem(VISTO_KEY, remoto._cambio || ''); } catch (e) {}
-        location.reload();
+        visto.current = remoto._cambio || '';
+        cargarEstado(merged); // sin location.reload()
       };
       // Reacciona a cambios en la nube (SIN comparar relojes)
       const alRecibirDoc = (snap) => {
-        if (!snap || !snap.exists) { pushCloud(); return; }   // nube vacía -> la sembramos
+        if (!snap) return;
+        if (snap.metadata && snap.metadata.hasPendingWrites) return; // eco de nuestra propia escritura local
+        if (!snap.exists) { pushCloud(); return; }             // nube vacía -> la sembramos
         const remoto = snap.data();
         const rv = remoto._cambio || '';
         if (rv === visto.current) return;                     // ya conocemos esta versión (o es nuestro propio eco)
@@ -1684,16 +1700,14 @@
   <script>
     // Service worker: instalación, uso sin internet y auto-actualización.
     if ('serviceWorker' in navigator) {
-      // Cuando una versión nueva toma el control, recarga una vez para mostrarla.
-      var recargando = false;
+      // Cuando una versión nueva toma el control, recarga UNA sola vez por sesión de pestaña
+      // (con sessionStorage), para que jamás pueda formar un bucle de recargas.
       navigator.serviceWorker.addEventListener('controllerchange', function () {
-        if (recargando) return;
-        recargando = true;
+        try { if (sessionStorage.getItem('sw_recargado')) return; sessionStorage.setItem('sw_recargado', '1'); } catch (e) {}
         window.location.reload();
       });
       window.addEventListener('load', function () {
         navigator.serviceWorker.register('./sw.js').then(function (reg) {
-          // Busca actualizaciones al abrir y de vez en cuando mientras está abierta.
           reg.update();
           setInterval(function () { reg.update(); }, 60 * 60 * 1000);
         }).catch(function () {});
