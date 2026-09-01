@@ -134,6 +134,8 @@
     const IconUndo = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9l5-5"></path><path d="M4 9h11a5 5 0 0 1 5 5v0a5 5 0 0 1-5 5h-4"></path></svg>;
     const IconGift = () => <Ico><polyline points="20 12 20 22 4 22 4 12"></polyline><rect x="2" y="7" width="20" height="5"></rect><line x1="12" y1="22" x2="12" y2="7"></line><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path></Ico>;
     const IconCoin = ({ size = 13 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#f5b23e" strokeWidth="2"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3.5"></circle></svg>;
+    const IconTarget = () => <Ico><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1"></circle></Ico>;
+    const IconGear = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>;
 
     // ---------- Barra segmentada (HUD) ----------
     const SegBar = ({ pct, c1, c2 }) => {
@@ -153,9 +155,9 @@
     const NAV = [
       { id: 'dashboard', label: 'Panel', Icon: IconPanel },
       { id: 'habitos', label: 'Hábitos', Icon: IconZap },
-      { id: 'diarias', label: 'Diarias', Icon: IconSun },
       { id: 'pendientes', label: 'Tareas', Icon: IconCheck },
       { id: 'notas', label: 'Notas', Icon: IconNote },
+      { id: 'metas', label: 'Metas', Icon: IconTarget },
       { id: 'premios', label: 'Premios', Icon: IconGift },
       { id: 'archivo', label: 'Archivo', Icon: IconArchive },
     ];
@@ -226,10 +228,10 @@
       // ---- Registros ligados a cada día ----
       const [xpPorDia, setXpPorDia] = useState(G.xpPorDia ?? {});          // { dia: xp ganada }
       const [tareasPorDia, setTareasPorDia] = useState(G.tareasPorDia ?? {}); // { dia: nº acciones }
+      const [progresoPorDia, setProgresoPorDia] = useState(G.progresoPorDia ?? {}); // { dia: progreso ponderado } (Tareas pesan mucho más que Hábitos)
       const [diasCompletados, setDiasCompletados] = useState(G.diasCompletados ?? {}); // { dia: true }
       const [habitLog, setHabitLog] = useState(G.habitLog ?? {});          // { habitId: { dia: conteo } }  (positivos)
       const [habitNegLog, setHabitNegLog] = useState(G.habitNegLog ?? {}); // { habitId: { dia: conteo } }  (negativos)
-      const [diariaLog, setDiariaLog] = useState(G.diariaLog ?? {});       // { diariaId: { dia: true } }
       const [efectos, setEfectos] = useState(G.efectos ?? {});            // { clave: [efecto,...] } efecto exacto de cada acción, para revertir idéntico
       const [ultimoDia, setUltimoDia] = useState(G.ultimoDia ?? todayKey); // última vez que se abrió (para penalizar diarias sin cumplir)
 
@@ -237,19 +239,20 @@
       const [modoBalance, setModoBalance] = useState(G.modoBalance ?? 'normal');
       const [balance, setBalance] = useState(G.balance ?? PRESETS.normal);
 
-      // ---- Definiciones (se repiten cada día) ----
+      // ---- Definiciones (hábitos y tareas ahora se pueden programar por día de la semana) ----
       const [habitos, setHabitos] = useState(G.habitos ?? [
-        { id: 1, texto: 'Lectura de Marco Aurelio', tipo: 'positivo' },
-        { id: 2, texto: 'Comida rápida', tipo: 'negativo' },
-        { id: 3, texto: 'Trote matutino', tipo: 'ambos' },
+        { id: 1, texto: 'Lectura de Marco Aurelio', tipo: 'positivo', dias: TODOS_DIAS },
+        { id: 2, texto: 'Comida rápida', tipo: 'negativo', dias: TODOS_DIAS },
+        { id: 3, texto: 'Trote matutino', tipo: 'ambos', dias: TODOS_DIAS },
       ]);
-      const [diarias, setDiarias] = useState(G.diarias ?? [
-        { id: 1, texto: 'Avanzar en Ovelin IA', dias: TODOS_DIAS },
-        { id: 2, texto: 'Repasar apuntes de Derecho', dias: TODOS_DIAS },
-      ]);
-      // Tareas puntuales: fecha = día de creación, completadoFecha = día en que se terminó
+      // Tareas: fecha = día de creación, dias = días programados, completadoFecha = día en que se terminó
       const [pendientes, setPendientes] = useState(G.pendientes ?? []);
       const [notas, setNotas] = useState(G.notas ?? []);
+      // Metas a largo plazo: progreso acumulado hacia un objetivo
+      const [metas, setMetas] = useState(G.metas ?? [
+        { id: 1, texto: 'Leer 12 libros', objetivo: 12, progreso: 3, color: '#a78bfa' },
+        { id: 2, texto: 'Ahorrar $10,000', objetivo: 10000, progreso: 2500, color: '#34d399' },
+      ]);
       // Premios canjeables con oro (editables por el usuario)
       const [recompensas, setRecompensas] = useState(G.recompensas ?? [
         { id: 1, texto: '🎬 Ver una película', costo: 100, veces: 0 },
@@ -264,7 +267,12 @@
       const [nuevoTipo, setNuevoTipo] = useState('ambos');
       const [nuevaDif, setNuevaDif] = useState('media');
       const [nuevaDias, setNuevaDias] = useState(TODOS_DIAS);
-      const [diariaEdit, setDiariaEdit] = useState(null);
+      const [itemEdit, setItemEdit] = useState(null);   // edición genérica de hábito/tarea (texto, tipo, dificultad, días)
+      const [menuAbierto, setMenuAbierto] = useState(false); // menú de configuración (desde la foto de perfil)
+      const [vistaLista, setVistaLista] = useState('hoy');   // 'hoy' | 'todas' en Hábitos/Tareas
+      const [nuevaMeta, setNuevaMeta] = useState('');
+      const [nuevoObjetivo, setNuevoObjetivo] = useState('');
+      const [metaEdit, setMetaEdit] = useState(null);
       const [tituloNota, setTituloNota] = useState('');
       const [contenidoNota, setContenidoNota] = useState('');
       const [editandoNota, setEditandoNota] = useState(null);
@@ -318,32 +326,23 @@
         let cambio;
         if (bump) { cambio = Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
         else { cambio = G._cambio || ''; try { const p = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); if (p._cambio) cambio = p._cambio; } catch (e) {} }
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _cambio: cambio };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, progresoPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas, _cambio: cambio };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
         if (bump) { dirty.current = true; programarPush(); }
         primerSave.current = false;
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, progresoPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas]);
 
       // ---- Al abrir: penalizar CADA día perdido (sin actividad) desde la última vez.
       //      La penalización se acumula y, si la vida se acaba, BAJAS DE NIVEL. ----
       useEffect(() => {
         if (ultimoDia && ultimoDia < todayKey) {
-          const bal0 = G.balance || PRESETS.normal;
-          const danoDe = (d) => (bal0[d.dificultad || 'media'] || PRESETS.normal.media).dano;
-          const BASE_INACTIVIDAD = 10; // castigo mínimo por un día sin hacer nada
+          const BASE_INACTIVIDAD = 12; // castigo por cada día sin actividad
           let total = 0, dias = 0;
           let d = parseKey(ultimoDia), guard = 0;
           while (dk(d) < todayKey && guard < 60) { // desde la última vez hasta ayer (máx 60 días)
             const D = dk(d);
             const activo = (xpPorDia[D] || 0) > 0;
-            if (!activo) { // día sin actividad -> se penaliza
-              let danoDia = 0;
-              diarias.forEach(x => {
-                if (existe(x, D) && enDia(x, D) && !(diariaLog[x.id] && diariaLog[x.id][D])) danoDia += danoDe(x);
-              });
-              if (danoDia === 0) danoDia = BASE_INACTIVIDAD; // sin diarias ese día -> castigo base
-              total += danoDia; dias += 1;
-            }
+            if (!activo) { total += BASE_INACTIVIDAD; dias += 1; } // día sin actividad -> penaliza
             d.setDate(d.getDate() + 1); guard += 1;
           }
           if (total > 0) {
@@ -383,7 +382,7 @@
           r.push({
             id: key, numero: d.getDate(), nombre: NOMBRES_DIA[d.getDay()],
             completado: !!diasCompletados[key], isToday: i === 0, isSel: key === selDia,
-            actividad: Math.min(100, xpPorDia[key] || 0),
+            actividad: Math.min(100, progresoPorDia[key] || 0), // progreso ponderado (tareas >> hábitos)
           });
         }
         return r;
@@ -398,7 +397,6 @@
         Object.keys(diasCompletados).forEach(push);
         Object.values(habitLog).forEach(o => Object.keys(o).forEach(push));
         Object.values(habitNegLog).forEach(o => Object.keys(o).forEach(push));
-        Object.values(diariaLog).forEach(o => Object.keys(o).forEach(push));
         notas.forEach(n => push(n.fecha));
         pendientes.forEach(p => { push(p.fecha); push(p.completadoFecha); });
         const hace30 = (() => { const d = new Date(); d.setDate(d.getDate() - 29); return dk(d); })();
@@ -441,7 +439,8 @@
         const dia = n.dia || todayKey;
         if (n.xpDia) setXpPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.xpDia) }));
         if (n.tareas) setTareasPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.tareas) }));
-        return { dTotal: total - totalAntes, dHp: h - hp, dOro: oroDesp - oro, dia, dXpDia: n.xpDia || 0, dTareas: n.tareas || 0 };
+        if (n.prog) setProgresoPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.prog) }));
+        return { dTotal: total - totalAntes, dHp: h - hp, dOro: oroDesp - oro, dia, dXpDia: n.xpDia || 0, dTareas: n.tareas || 0, dProg: n.prog || 0 };
       };
       const revertir = (ef) => {
         if (!ef) return;
@@ -454,6 +453,7 @@
         const restar = (m, dia, cant) => { const v = Math.max(0, (m[dia] || 0) - cant); const c = { ...m }; if (v <= 0) delete c[dia]; else c[dia] = v; return c; };
         if (ef.dXpDia) setXpPorDia(m => restar(m, ef.dia, ef.dXpDia));
         if (ef.dTareas) setTareasPorDia(m => restar(m, ef.dia, ef.dTareas));
+        if (ef.dProg) setProgresoPorDia(m => restar(m, ef.dia, ef.dProg));
       };
       const pushEfecto = (key, ef) => setEfectos(e => ({ ...e, [key]: [...(e[key] || []), ef] }));
       const popEfecto = (key) => {
@@ -464,6 +464,10 @@
         return ef;
       };
 
+      // Pesos del progreso de la gráfica: las TAREAS pesan mucho más que los HÁBITOS,
+      // así que completar sólo hábitos avanza poco; el progreso real requiere tareas.
+      const PESO_HABITO = 4;
+      const PESO_TAREA = 30;
       // Valores de balance activos para un elemento según su dificultad
       const valDe = (it) => balance[(it && it.dificultad) || 'media'] || PRESETS.normal.media;
       const aplicarModo = (id) => { setModoBalance(id); if (id !== 'personalizado') setBalance(PRESETS[id]); };
@@ -481,7 +485,7 @@
         const h = habitos.find(x => x.id === id);
         const v = valDe(h);
         if (tipo === 'positivo') {
-          const ef = aplicar({ xp: v.xp, hp: v.cura, oro: Math.floor(v.xp / 2), dia: todayKey, xpDia: v.xp, tareas: 1 });
+          const ef = aplicar({ xp: v.xp, hp: v.cura, oro: Math.floor(v.xp / 2), dia: todayKey, xpDia: v.xp, tareas: 1, prog: PESO_HABITO });
           pushEfecto('hp:' + id, ef);
           addFloater('+' + v.xp + ' XP', '#b6a6ff');
           setHabitLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
@@ -512,36 +516,12 @@
         setHabitNegLog(l => bajarConteo(l, id));
       };
 
-      const hechoDiaria = (id) => !!(diariaLog[id] && diariaLog[id][selDia]);
-      const completarDiaria = (id) => {
-        if (!esHoy) return;
-        const dObj = diarias.find(x => x.id === id);
-        const df = valDe(dObj);
-        const done = hechoDiaria(id);
-        if (!done) {
-          const ef = aplicar({ xp: df.xp, hp: df.cura, oro: Math.floor(df.xp / 2), dia: todayKey, xpDia: df.xp, tareas: 1 });
-          pushEfecto('d:' + id, ef);
-          addFloater('+' + df.xp + ' XP', '#b6a6ff');
-          const nl = { ...diariaLog, [id]: { ...(diariaLog[id] || {}), [todayKey]: true } };
-          setDiariaLog(nl);
-          const programadasHoy = diarias.filter(d => existe(d, todayKey) && enDia(d, todayKey));
-          if (programadasHoy.length > 0 && programadasHoy.every(d => nl[d.id] && nl[d.id][todayKey])) {
-            setDiasCompletados(m => ({ ...m, [todayKey]: true }));
-          }
-        } else {
-          revertir(popEfecto('d:' + id) || efPos(dObj));
-          const cur = { ...(diariaLog[id] || {}) }; delete cur[todayKey];
-          setDiariaLog({ ...diariaLog, [id]: cur });
-          setDiasCompletados(m => { const c = { ...m }; delete c[todayKey]; return c; });
-        }
-      };
-
       const completarPendiente = (id) => {
         if (!esHoy) return;
         const p = pendientes.find(x => x.id === id);
         if (!p || p.completado) return;
         const df = valDe(p);
-        const ef = aplicar({ xp: df.xp, hp: df.cura, oro: Math.floor(df.xp / 2), dia: todayKey, xpDia: df.xp, tareas: 1 });
+        const ef = aplicar({ xp: df.xp, hp: df.cura, oro: Math.floor(df.xp / 2), dia: todayKey, xpDia: df.xp, tareas: 1, prog: PESO_TAREA });
         pushEfecto('t:' + id, ef);
         addFloater('+' + df.xp + ' XP', '#b6a6ff');
         setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: true, completadoFecha: todayKey } : x));
@@ -572,38 +552,48 @@
           setTituloNota(''); setContenidoNota(''); return;
         }
         if (!nuevoTexto.trim()) return;
-        const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif, creado: todayKey };
+        const dias = (nuevaDias && nuevaDias.length ? nuevaDias : TODOS_DIAS);
+        const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif, creado: todayKey, dias };
         if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
-        if (tab === 'diarias') setDiarias([...diarias, { ...base, dias: (nuevaDias && nuevaDias.length ? nuevaDias : [0, 1, 2, 3, 4, 5, 6]) }]);
         if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey }]);
         setNuevoTexto('');
       };
 
       const editarNota = (n) => { setEditandoNota(n.id); setTituloNota(n.titulo); setContenidoNota(n.contenido); setTab('notas'); };
 
-      // ---- Programación de diarias por día de la semana ----
+      // ---- Programación por día de la semana + edición genérica (hábitos y tareas) ----
       const toggleNuevaDia = (n) => setNuevaDias(a => a.includes(n) ? a.filter(x => x !== n) : [...a, n]);
-      const abrirEditarDiaria = (d) => setDiariaEdit({ id: d.id, texto: d.texto, dificultad: d.dificultad || 'media', dias: diasDe(d).slice() });
-      const toggleDiaEdit = (n) => setDiariaEdit(e => ({ ...e, dias: e.dias.includes(n) ? e.dias.filter(x => x !== n) : [...e.dias, n] }));
-      const guardarDiariaEdit = () => {
-        if (!diariaEdit) return;
-        const dias = diariaEdit.dias.length ? diariaEdit.dias : TODOS_DIAS;
-        const orig = diarias.find(d => d.id === diariaEdit.id);
-        const texto = (diariaEdit.texto || '').trim() || (orig ? orig.texto : '');
-        if (orig && orig.creado === todayKey) {
-          // Creada hoy: sin historial que proteger -> se edita en el mismo ítem.
-          setDiarias(diarias.map(d => d.id === diariaEdit.id ? { ...d, texto, dificultad: diariaEdit.dificultad, dias } : d));
-        } else {
-          // Con historial: congela la versión vieja (archivada hoy) y crea una nueva desde hoy.
-          const nuevoId = Date.now();
-          setDiarias(diarias.map(d => d.id === diariaEdit.id ? { ...d, archivado: todayKey } : d)
-            .concat([{ id: nuevoId, texto, dificultad: diariaEdit.dificultad, dias, creado: todayKey }]));
-          if (diariaLog[diariaEdit.id] && diariaLog[diariaEdit.id][todayKey]) {
-            setDiariaLog(l => ({ ...l, [nuevoId]: { [todayKey]: true } })); // conserva la marca de hoy
-          }
-        }
-        setDiariaEdit(null);
+      // Editar cualquier hábito/tarea EN CUALQUIER MOMENTO (aunque esté programado para un día futuro)
+      const abrirEditar = (it, kind) => setItemEdit({ kind, id: it.id, texto: it.texto, tipo: it.tipo || 'ambos', dificultad: it.dificultad || 'media', dias: diasDe(it).slice() });
+      const toggleDiaEdit = (n) => setItemEdit(e => ({ ...e, dias: e.dias.includes(n) ? e.dias.filter(x => x !== n) : [...e.dias, n] }));
+      const guardarItemEdit = () => {
+        if (!itemEdit) return;
+        const dias = itemEdit.dias.length ? itemEdit.dias : TODOS_DIAS;
+        const texto = (itemEdit.texto || '').trim();
+        const campos = { dificultad: itemEdit.dificultad, dias };
+        if (itemEdit.kind === 'habito') setHabitos(habitos.map(h => h.id === itemEdit.id ? { ...h, ...campos, tipo: itemEdit.tipo, texto: texto || h.texto } : h));
+        else setPendientes(pendientes.map(p => p.id === itemEdit.id ? { ...p, ...campos, texto: texto || p.texto } : p));
+        setItemEdit(null);
       };
+
+      // ---- Metas a largo plazo (progreso acumulado) ----
+      const COLORES_META = ['#a78bfa', '#34d399', '#38bdf8', '#f5b23e', '#fb7185', '#f472b6'];
+      const agregarMeta = (e) => {
+        e.preventDefault();
+        const t = nuevaMeta.trim();
+        const obj = Math.max(1, parseInt(nuevoObjetivo, 10) || 0);
+        if (!t || obj <= 0) return;
+        if (metaEdit) {
+          setMetas(metas.map(m => m.id === metaEdit ? { ...m, texto: t, objetivo: obj } : m));
+          setMetaEdit(null);
+        } else {
+          setMetas([...metas, { id: Date.now(), texto: t, objetivo: obj, progreso: 0, color: COLORES_META[metas.length % COLORES_META.length] }]);
+        }
+        setNuevaMeta(''); setNuevoObjetivo('');
+      };
+      const editarMeta = (m) => { setMetaEdit(m.id); setNuevaMeta(m.texto); setNuevoObjetivo(String(m.objetivo)); };
+      const eliminarMeta = (id) => { setMetas(metas.filter(m => m.id !== id)); if (metaEdit === id) { setMetaEdit(null); setNuevaMeta(''); setNuevoObjetivo(''); } };
+      const avanzarMeta = (id, delta) => setMetas(metas.map(m => m.id === id ? { ...m, progreso: Math.max(0, Math.min(m.objetivo, (m.progreso || 0) + delta)) } : m));
 
       // ---- Premios / recompensas ----
       const guardarRecompensa = (e) => {
@@ -631,13 +621,10 @@
         addFloater('−' + r.costo + ' oro', '#f5b23e');
       };
 
+      // Eliminar en CUALQUIER momento (también ítems programados para días futuros)
       const eliminarItem = (id, lista) => {
-        if (!esHoy) return;
-        // Hábitos y diarias: NO se borran de verdad -> se archivan hoy, para que
-        // los días pasados conserven el ítem y su registro (pasado congelado).
-        // Si se creó hoy (sin historial), se elimina de verdad.
+        // Hábitos: se archivan (con fecha de hoy) para conservar el pasado; si se creó hoy, se borra de verdad.
         if (lista === 'habitos') setHabitos(habitos.map(i => i.id === id ? { ...i, archivado: todayKey } : i).filter(i => !(i.id === id && i.creado === todayKey)));
-        if (lista === 'diarias') setDiarias(diarias.map(i => i.id === id ? { ...i, archivado: todayKey } : i).filter(i => !(i.id === id && i.creado === todayKey)));
         if (lista === 'pendientes') setPendientes(pendientes.filter(i => i.id !== id));
         if (lista === 'notas') { setNotas(notas.filter(i => i.id !== id)); if (editandoNota === id) { setEditandoNota(null); setTituloNota(''); setContenidoNota(''); } }
       };
@@ -651,7 +638,7 @@
       };
 
       // ---- Respaldo: exportar / importar ----
-      const construirRespaldo = () => ({ nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, _exportado: new Date().toISOString(), _version: 3 });
+      const construirRespaldo = () => ({ nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, progresoPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas, _exportado: new Date().toISOString(), _version: 3 });
       const esRespaldoValido = (data) => data && typeof data === 'object' && !Array.isArray(data) && (('habitos' in data) || ('notas' in data));
       const exportarDatos = () => {
         const blob = new Blob([JSON.stringify(construirRespaldo(), null, 2)], { type: 'application/json' });
@@ -719,7 +706,7 @@
         const R = fbRef.current;
         if (!R.db || !R.user) return;
         if (pushTimer.current) clearTimeout(pushTimer.current);
-        pushTimer.current = setTimeout(pushCloud, 1200);
+        pushTimer.current = setTimeout(pushCloud, 300); // casi en tiempo real
       };
       // Aplica un estado completo a la app EN CALIENTE (sin recargar la página -> sin parpadeos)
       const cargarEstado = (d) => {
@@ -727,12 +714,12 @@
         interactuo.current = false; dirty.current = false; // aplicar remoto no es interacción del usuario
         setNivel(d.nivel ?? 1); setHp(d.hp ?? 100); setXp(d.xp ?? 0); setOro(d.oro ?? 0);
         if (d.fotoPerfil !== undefined) setFotoPerfil(d.fotoPerfil);
-        setXpPorDia(d.xpPorDia || {}); setTareasPorDia(d.tareasPorDia || {}); setDiasCompletados(d.diasCompletados || {});
-        setHabitLog(d.habitLog || {}); setHabitNegLog(d.habitNegLog || {}); setDiariaLog(d.diariaLog || {}); setEfectos(d.efectos || {});
+        setXpPorDia(d.xpPorDia || {}); setTareasPorDia(d.tareasPorDia || {}); setProgresoPorDia(d.progresoPorDia || {}); setDiasCompletados(d.diasCompletados || {});
+        setHabitLog(d.habitLog || {}); setHabitNegLog(d.habitNegLog || {}); setEfectos(d.efectos || {});
         if (d.ultimoDia) setUltimoDia(d.ultimoDia);
         setModoBalance(d.modoBalance || 'normal'); setBalance(d.balance || PRESETS.normal);
-        setHabitos(d.habitos || []); setDiarias(d.diarias || []); setPendientes(d.pendientes || []);
-        setNotas(d.notas || []); setRecompensas(d.recompensas || []);
+        setHabitos(d.habitos || []); setPendientes(d.pendientes || []);
+        setNotas(d.notas || []); setRecompensas(d.recompensas || []); setMetas(d.metas || []);
       };
       // Trae datos de la nube y los aplica en caliente (conservando la foto local)
       const aplicarRemoto = (remoto) => {
@@ -900,14 +887,13 @@
         line('XP total acumulada: ' + Math.round(sum(xpPorDia)) + '     Dias completados: ' + Object.keys(diasCompletados).length + '     Acciones totales: ' + sum(tareasPorDia));
 
         const habitosAct = habitos.filter(h => existe(h, todayKey));
-        const diariasAct = diarias.filter(d => existe(d, todayKey));
         heading('Habitos (' + habitosAct.length + ')');
         if (!habitosAct.length) line('- Sin habitos.');
-        else habitosAct.forEach(h => line('- ' + h.texto + '  (' + h.tipo + ' · ' + difDe(h).label + ')'));
+        else habitosAct.forEach(h => line('- ' + h.texto + '  (' + h.tipo + ' · ' + difDe(h).label + ' · ' + etiquetaDias(diasDe(h)) + ')'));
 
-        heading('Tareas diarias (' + diariasAct.length + ')');
-        if (!diariasAct.length) line('- Sin tareas diarias.');
-        else diariasAct.forEach(d => line('- ' + d.texto + '  (' + difDe(d).label + ' · ' + etiquetaDias(diasDe(d)) + ')'));
+        heading('Metas (' + metas.length + ')');
+        if (!metas.length) line('- Sin metas.');
+        else metas.forEach(m => line('- ' + m.texto + '  (' + (m.progreso || 0) + '/' + m.objetivo + ' · ' + Math.round((m.progreso || 0) / m.objetivo * 100) + '%)'));
 
         heading('Tareas pendientes (' + activas.length + ')');
         if (!activas.length) line('- Ninguna pendiente.');
@@ -943,8 +929,8 @@
       // ---- Derivados de la vista ----
       const card = "bg-[#101019] border border-[rgba(129,120,241,0.16)] rounded-[10px]";
       const rejilla = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-[10px] items-start"; // varias columnas en PC
-      const showInput = (esHoy && (['habitos', 'diarias', 'pendientes'].includes(tab) || (tab === 'notas' && notasVista === 'dia'))) || tab === 'premios';
-      const labelMap = { habitos: 'hábitos', diarias: 'diarias', pendientes: 'tareas' };
+      const showInput = (esHoy && (['habitos', 'pendientes'].includes(tab) || (tab === 'notas' && notasVista === 'dia'))) || tab === 'premios' || tab === 'metas';
+      const labelMap = { habitos: 'hábitos', pendientes: 'tareas' };
       const TIPOS = [
         { id: 'positivo', label: '+ Positivo', c: '#a78bfa' },
         { id: 'negativo', label: '− Negativo', c: '#fb7185' },
@@ -963,9 +949,11 @@
       };
       const notasLista = notasVista === 'mes' ? notasMes : notasDia;
       const vistaMes = tab === 'notas' && notasVista === 'mes'; // vista mensual: no depende del día seleccionado
-      const diariasDelDia = diarias.filter(d => existe(d, selDia) && enDia(d, selDia));
-      const habitosDelDia = habitos.filter(h => existe(h, selDia));
+      // Hábitos: "Hoy" = programados para el día visto; "Todas" = todos (para gestionar/editar futuros)
+      const habitosTodas = habitos.filter(h => existe(h, selDia));
+      const habitosDelDia = vistaLista === 'todas' ? habitosTodas : habitosTodas.filter(h => enDia(h, selDia));
       const pendientesActivas = pendientes.filter(p => !p.completado);
+      const pendientesDelDia = vistaLista === 'todas' ? pendientesActivas : pendientesActivas.filter(p => existe(p, selDia) && enDia(p, selDia));
       const archivoDia = pendientes.filter(p => p.completado && p.completadoFecha === selDia);
       const xpDia = xpPorDia[selDia] || 0;
       const tareasDia = tareasPorDia[selDia] || 0;
@@ -977,14 +965,14 @@
           {/* ===== HEADER / HUD ===== */}
           <header className="px-[18px] pt-4 pb-4 bg-[#0b0b11] border-b border-white/[0.06] flex-shrink-0">
             <div className="flex items-center gap-[14px]">
-              <div className="relative flex-shrink-0 cursor-pointer" onClick={() => fileRef.current && fileRef.current.click()}>
+              <div className="relative flex-shrink-0 cursor-pointer" onClick={() => setMenuAbierto(true)} title="Configuración">
                 <div className="w-[52px] h-[52px] rounded-[13px] overflow-hidden flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#231f3c,#12101f)', border: '1.5px solid rgba(124,115,240,0.55)', boxShadow: '0 0 18px rgba(124,115,240,0.22)' }}>
                   {fotoPerfil
                     ? <div className="w-full h-full" style={{ backgroundImage: `url(${fotoPerfil})`, backgroundSize: 'cover', backgroundPosition: 'center' }}></div>
                     : <span className="mono text-xl font-extrabold text-[#cbc5f8]">M</span>}
                 </div>
                 <div className="mono absolute -bottom-[5px] -right-[5px] text-[9px] font-black px-[5px] py-[2px] rounded-[6px] border-2 border-[#0a0a0f]" style={{ background: 'linear-gradient(135deg,#f5c451,#f5972e)', color: '#231600' }}>LV{nivel}</div>
-                <div className="absolute -top-[5px] -left-[5px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-[#0a0a0f]" style={{ background: ACCENT, boxShadow: '0 2px 6px rgba(0,0,0,0.45)' }}><IconCamera /></div>
+                <div className="absolute -top-[5px] -left-[5px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-[#0a0a0f]" style={{ background: ACCENT, boxShadow: '0 2px 6px rgba(0,0,0,0.45)' }}><IconGear /></div>
                 <input type="file" accept="image/*" ref={fileRef} onChange={onFotoChange} className="hidden" />
               </div>
 
@@ -1078,7 +1066,7 @@
           )}
 
           {/* ===== MAIN ===== */}
-          <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : (tab === 'diarias' ? 'pb-56' : (tab === 'habitos' ? 'pb-48' : (tab === 'notas' ? 'pb-40' : (tab === 'premios' ? 'pb-32' : 'pb-36')))))} style={{ WebkitOverflowScrolling: 'touch' }}>
+          <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : (tab === 'habitos' ? 'pb-56' : (tab === 'pendientes' ? 'pb-52' : (tab === 'notas' ? 'pb-40' : (tab === 'metas' ? 'pb-40' : 'pb-32')))))} style={{ WebkitOverflowScrolling: 'touch' }}>
 
             {tab === 'dashboard' && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-[14px] items-start anim-fade">
@@ -1114,86 +1102,24 @@
                     ))}
                   </div>
                 </div>
-
-                <div className={card + " p-4 flex flex-col gap-3"}>
-                  <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#7c73f0]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Balance del juego</span></div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col gap-[3px]">
-                      <span className="text-[12px] font-bold text-[#d3d6dd]">Modo: <span style={{ color: '#b6adf7' }}>{(MODOS.find(m => m.id === modoBalance) || MODOS[1]).label}</span></span>
-                      <span className="text-[10px] text-[#6b7280]">Rango actual: <span style={{ color: rangoDe(nivel).c, fontWeight: 700 }}>{rangoDe(nivel).label}</span>{rangoSiguiente(nivel) ? ' · siguiente en nivel ' + rangoSiguiente(nivel).min : ' · rango máximo'}</span>
-                    </div>
-                    <button onClick={() => setAjustesAbierto(true)} className="py-[9px] px-[14px] rounded-lg text-[12px] font-bold text-[#c4b5fd] active:scale-95 transition-all flex-shrink-0" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>Ajustar</button>
-                  </div>
-                </div>
-
-                <div className={card + " p-4 flex flex-col gap-3"}>
-                  <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#38bdf8]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Sincronización en la nube</span></div>
-                  {sync === 'conectado' ? (
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="w-[8px] h-[8px] rounded-full bg-[#34d399]" style={{ boxShadow: '0 0 8px #34d399' }}></span>
-                        <span className="text-[12px] font-bold text-[#d3d6dd]">Sincronizado</span>
-                      </div>
-                      <span className="text-[11px] text-[#6b7280]">Tus datos se guardan y sincronizan solos entre tus dispositivos con esta cuenta: <b className="text-[#8b93a3] break-words">{syncUser}</b></span>
-                      <div className="flex gap-2 mt-1">
-                        <button onClick={forzarSubir} className="flex-1 py-[9px] rounded-lg text-[12px] font-bold text-[#231600]" style={{ background: 'linear-gradient(135deg,#34d399,#10b981)' }}>⬆ Subir mis datos</button>
-                        <button onClick={forzarBajar} className="flex-1 py-[9px] rounded-lg text-[12px] font-bold text-[#c4b5fd]" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>⬇ Bajar de la nube</button>
-                      </div>
-                      <p className="text-[10px] text-[#5b6270] leading-relaxed m-0">Úsalos si algo quedó desincronizado: en el dispositivo que tiene tus datos buenos toca <b className="text-[#34d399]">Subir</b>, y en el otro toca <b className="text-[#b6adf7]">Bajar</b>.</p>
-                      <button onClick={salirSync} className="py-[9px] rounded-lg text-[12px] font-bold text-[#9aa1ad]" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Cerrar sesión en este dispositivo</button>
-                    </div>
-                  ) : sync === 'conectando' ? (
-                    <span className="text-[12px] text-[#8b93a3] py-2">Conectando…</span>
-                  ) : sync === 'sinConfig' ? (
-                    <div className="flex flex-col gap-2">
-                      <p className="text-[11px] text-[#6b7280] leading-relaxed m-0">Conecta la app a la nube para que tu progreso se sincronice <b className="text-[#8b93a3]">solo</b> entre tu celular y tu compu. Necesitas crear un proyecto gratis de Firebase (una vez).</p>
-                      <button onClick={() => { setConfigTexto(''); setSyncError(''); setConfigAbierto(true); }} className="py-[10px] rounded-lg text-[12px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#38bdf8,#3b82f6)', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}>Configurar Firebase</button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      <p className="text-[11px] text-[#6b7280] leading-relaxed m-0">Entra con tu email y contraseña (los mismos en todos tus dispositivos). Si es tu primera vez, usa <b className="text-[#8b93a3]">Crear cuenta</b>.</p>
-                      <input value={syncEmail} onChange={e => setSyncEmail(e.target.value)} type="email" autoComplete="email" placeholder="tu@email.com" className="bg-[#0c0c14] border border-white/10 rounded-lg px-[12px] py-[10px] text-[13px] text-[#f2f3f6] outline-none focus:border-[#38bdf8]" />
-                      <input value={syncPass} onChange={e => setSyncPass(e.target.value)} type="password" autoComplete="current-password" placeholder="Contraseña (mín. 6)" className="bg-[#0c0c14] border border-white/10 rounded-lg px-[12px] py-[10px] text-[13px] text-[#f2f3f6] outline-none focus:border-[#38bdf8]" />
-                      <div className="flex gap-2">
-                        <button onClick={() => entrarSync(false)} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#38bdf8,#3b82f6)' }}>Entrar</button>
-                        <button onClick={() => entrarSync(true)} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad]" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Crear cuenta</button>
-                      </div>
-                      <button onClick={desconectarFirebase} className="text-[10px] text-[#5b6270] underline self-start">Cambiar configuración de Firebase</button>
-                    </div>
-                  )}
-                  {syncError && <span className="text-[11px] font-bold text-[#fb7185]">{syncError}</span>}
-                </div>
-
-                <div className={card + " p-4 flex flex-col gap-[14px]"}>
-                  <div>
-                    <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#34d399]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Pasar datos a otro dispositivo</span></div>
-                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Sin nube: en este dispositivo toca <b className="text-[#8b93a3]">Copiar datos</b>, envíatelos por WhatsApp o notas, y en el otro dispositivo (tu compu) abre la app y toca <b className="text-[#8b93a3]">Pegar datos</b>.</p>
-                    <div className="flex gap-2">
-                      <button onClick={abrirCopiar} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#231600] active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#34d399,#10b981)', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}>Copiar datos</button>
-                      <button onClick={() => { setTextoPegar(''); setTransfer('pegar'); }} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Pegar datos</button>
-                    </div>
-                  </div>
-                  <div className="border-t border-white/[0.06] pt-[14px]">
-                    <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#f5b23e]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Copia de seguridad (archivo)</span></div>
-                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Guarda un archivo con <b className="text-[#8b93a3]">todos</b> tus datos y restáuralo cuando quieras (si cambias de teléfono o limpias el navegador).</p>
-                    <div className="flex gap-2">
-                      <button onClick={exportarDatos} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#c4b5fd] active:scale-95 transition-all" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>Exportar copia</button>
-                      <button onClick={() => importRef.current && importRef.current.click()} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Restaurar</button>
-                      <input type="file" accept="application/json,.json" ref={importRef} onChange={importarDatos} className="hidden" />
-                    </div>
-                  </div>
-                  <div className="border-t border-white/[0.06] pt-[14px]">
-                    <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#fb7185]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Reporte PDF</span></div>
-                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Un resumen legible de tu progreso, hábitos, tareas y notas — para leer, imprimir o compartir.</p>
-                    <button onClick={descargarPDF} className="w-full py-[10px] rounded-lg text-[12px] font-bold text-white active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.35)' }}>Descargar PDF</button>
-                  </div>
-                </div>
               </div>
             )}
 
             {tab === 'habitos' && (
               <div className={rejilla + " anim-fade"}>
-                {habitosDelDia.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{habitos.length === 0 ? 'Añade tu primer hábito abajo.' : 'No había hábitos este día.'}</div>}
+                <div className="col-span-full flex gap-[6px]">
+                  {[{ id: 'hoy', label: 'De este día' }, { id: 'todas', label: 'Todas' }].map(v => {
+                    const sel = vistaLista === v.id;
+                    return (
+                      <button key={v.id} onClick={() => setVistaLista(v.id)} className="flex-1 py-[8px] rounded-lg text-[12px] font-bold transition-all" style={{
+                        background: sel ? 'rgba(124,115,240,0.16)' : 'rgba(255,255,255,0.04)',
+                        color: sel ? '#b6adf7' : '#6b7280',
+                        border: sel ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                      }}>{v.label}</button>
+                    );
+                  })}
+                </div>
+                {habitosDelDia.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{habitos.length === 0 ? 'Añade tu primer hábito abajo.' : (vistaLista === 'todas' ? 'Aún no tienes hábitos.' : 'Ningún hábito programado para este día.')}</div>}
                 {habitosDelDia.map(h => {
                   const veces = countHabito(h.id);
                   const vecesNeg = countHabitoNeg(h.id);
@@ -1210,6 +1136,7 @@
                           <span className="text-sm font-semibold leading-tight" style={{ color: marcado ? '#f3f2fb' : '#cdd0d8' }}>{h.texto}</span>
                           <div className="flex items-center gap-2 flex-wrap">
                             <TagDif it={h} />
+                            <span className="text-[9px] font-bold text-[#5b6270]">🗓 {etiquetaDias(diasDe(h))}</span>
                             {hechoPos && (
                               <span className="flex items-center gap-[3px]">
                                 <span className="text-[10px] font-bold text-[#a99ff5]">✨ {esHoy ? 'Registrado hoy' : 'Registrado'} · {veces}</span>
@@ -1231,40 +1158,10 @@
                           {(h.tipo === 'negativo' || h.tipo === 'ambos') && (
                             <button onClick={() => accionarHabito(h.id, 'negativo')} disabled={!esHoy} className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-2xl font-bold transition-all active:scale-90" style={{ background: hechoNeg ? 'linear-gradient(135deg,#f43f5e,#fb7185)' : 'rgba(244,63,94,0.14)', color: hechoNeg ? '#fff' : '#fb7185', opacity: esHoy ? 1 : 0.45, boxShadow: hechoNeg ? '0 4px 12px rgba(244,63,94,0.35)' : 'none' }}>−</button>
                           )}
-                          {esHoy && <button onClick={() => eliminarItem(h.id, 'habitos')} className="w-[30px] h-[38px] text-[#4b5160] text-xs font-bold">✕</button>}
+                          <button onClick={() => abrirEditar(h, 'habito')} className="text-[#6b7280] hover:text-[#b6adf7] p-1" title="Editar"><IconEdit /></button>
+                          <button onClick={() => eliminarItem(h.id, 'habitos')} className="w-[26px] h-[38px] text-[#4b5160] text-xs font-bold" title="Eliminar">✕</button>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {tab === 'diarias' && (
-              <div className={rejilla + " anim-fade"}>
-                {diariasDelDia.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{diarias.length === 0 ? 'Añade tu primera tarea diaria abajo.' : 'No hay diarias programadas para este día.'}</div>}
-                {diariasDelDia.map(d => {
-                  const done = hechoDiaria(d.id);
-                  return (
-                    <div key={d.id} className={card + " p-[14px] flex items-center justify-between gap-[10px] transition-all"} style={{ opacity: done ? 0.5 : 1 }}>
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <button onClick={() => completarDiaria(d.id)} disabled={!esHoy} className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center flex-shrink-0 transition-all active:scale-90" style={{ border: done ? 'none' : '2px solid #565d6c', background: done ? ACCENT : 'transparent' }}>
-                          {done && <IconTick />}
-                        </button>
-                        <div className="flex flex-col gap-[3px] min-w-0">
-                          <span className="text-sm font-medium break-words" style={{ color: done ? '#6b7280' : '#d3d6dd', textDecoration: done ? 'line-through' : 'none' }}>{d.texto}</span>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <TagDif it={d} />
-                            <span className="text-[9px] font-bold text-[#5b6270]">🗓 {etiquetaDias(diasDe(d))}</span>
-                          </div>
-                        </div>
-                      </div>
-                      {esHoy && (
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button onClick={() => abrirEditarDiaria(d)} className="text-[#6b7280] hover:text-[#b6adf7] p-1"><IconEdit /></button>
-                          <button onClick={() => eliminarItem(d.id, 'diarias')} className="text-[#4b5160] text-xs font-bold p-1">✕</button>
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -1273,29 +1170,51 @@
 
             {tab === 'pendientes' && (
               <div className={rejilla + " anim-fade"}>
-                {!esHoy && <div className="col-span-full text-center py-2 text-[#5b6270] text-[11px] italic">Tus tareas activas se gestionan en “Hoy”. Aquí abajo verás lo que completaste este día.</div>}
-                {esHoy && pendientesActivas.map(p => (
+                <div className="col-span-full flex gap-[6px]">
+                  {[{ id: 'hoy', label: 'De este día' }, { id: 'todas', label: 'Todas' }].map(v => {
+                    const sel = vistaLista === v.id;
+                    return (
+                      <button key={v.id} onClick={() => setVistaLista(v.id)} className="flex-1 py-[8px] rounded-lg text-[12px] font-bold transition-all" style={{
+                        background: sel ? 'rgba(124,115,240,0.16)' : 'rgba(255,255,255,0.04)',
+                        color: sel ? '#b6adf7' : '#6b7280',
+                        border: sel ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                      }}>{v.label}</button>
+                    );
+                  })}
+                </div>
+                {pendientesDelDia.length === 0 && archivoDia.length === 0 && (
+                  <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{pendientesActivas.length === 0 ? 'Añade tu primera tarea abajo.' : (vistaLista === 'todas' ? 'Sin tareas activas.' : 'Ninguna tarea programada para este día.')}</div>
+                )}
+                {pendientesDelDia.map(p => (
                   <div key={p.id} className={card + " p-[14px] flex items-center justify-between gap-[10px]"}>
                     <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <button onClick={() => completarPendiente(p.id)} className="w-[22px] h-[22px] rounded-full border-2 border-[#565d6c] flex-shrink-0 transition-all active:scale-90 hover:border-emerald-400"></button>
+                      <button onClick={() => completarPendiente(p.id)} disabled={!esHoy} className="w-[22px] h-[22px] rounded-full border-2 border-[#565d6c] flex-shrink-0 transition-all active:scale-90 hover:border-emerald-400" style={{ opacity: esHoy ? 1 : 0.4 }} title={esHoy ? 'Completar' : 'Sólo puedes completar en su día'}></button>
                       <div className="flex flex-col gap-[3px] min-w-0">
                         <span className="text-sm font-medium text-[#d3d6dd] break-words">{p.texto}</span>
-                        <TagDif it={p} />
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <TagDif it={p} />
+                          <span className="text-[9px] font-bold text-[#5b6270]">🗓 {etiquetaDias(diasDe(p))}</span>
+                        </div>
                       </div>
                     </div>
-                    <button onClick={() => eliminarItem(p.id, 'pendientes')} className="text-[#4b5160] text-xs font-bold px-2">✕</button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => abrirEditar(p, 'tarea')} className="text-[#6b7280] hover:text-[#b6adf7] p-1" title="Editar"><IconEdit /></button>
+                      <button onClick={() => eliminarItem(p.id, 'pendientes')} className="text-[#4b5160] text-xs font-bold px-1" title="Eliminar">✕</button>
+                    </div>
                   </div>
                 ))}
-                {esHoy && pendientesActivas.length === 0 && (
-                  <div className="col-span-full text-center py-11 text-[#5b6270] text-sm">Todo bajo control. Sin tareas pendientes.</div>
+                {archivoDia.length > 0 && (
+                  <div className="col-span-full text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#5b6270] mt-2">Completadas · {etiquetaCorta(selDia)}</div>
                 )}
-                {!esHoy && archivoDia.length === 0 && (
-                  <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">No completaste tareas este día.</div>
-                )}
-                {!esHoy && archivoDia.map(p => (
-                  <div key={p.id} className="p-[14px] rounded-[10px] flex items-center gap-3 bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.72 }}>
-                    <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
-                    <span className="text-sm text-[#6b7280] line-through break-words">{p.texto}</span>
+                {archivoDia.map(p => (
+                  <div key={p.id} className="p-[14px] rounded-[10px] flex items-center justify-between gap-3 bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.72 }}>
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
+                      <span className="text-sm text-[#6b7280] line-through break-words">{p.texto}</span>
+                    </div>
+                    {esHoy && (
+                      <button onClick={() => deshacerPendiente(p.id)} className="text-[#fb7185] opacity-60 active:scale-90 transition-all flex-shrink-0" title="Devolver"><IconUndo /></button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1372,6 +1291,46 @@
               </div>
             )}
 
+            {tab === 'metas' && (
+              <div className={rejilla + " anim-fade"}>
+                <div className="col-span-full">
+                  <h2 className="text-[15px] font-extrabold text-[#f2f3f6] m-0 mb-1">Metas a largo plazo</h2>
+                  <p className="text-[11px] text-[#6b7280] m-0">Visualiza el progreso acumulado de tus objetivos grandes.</p>
+                </div>
+                {metas.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">Crea tu primera meta abajo.</div>}
+                {metas.map(m => {
+                  const obj = Math.max(1, m.objetivo || 1);
+                  const prog = Math.max(0, Math.min(obj, m.progreso || 0));
+                  const pct = Math.round((prog / obj) * 100);
+                  const done = prog >= obj;
+                  return (
+                    <div key={m.id} className={card + " p-[14px] flex flex-col gap-[10px]"}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-[#e7e9ee] break-words">{m.texto}</span>
+                            {done && <span className="text-[11px]">🏆</span>}
+                          </div>
+                          <span className="mono text-[11px] font-bold" style={{ color: m.color }}>{prog} / {obj} · {pct}%</span>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button onClick={() => editarMeta(m)} className="text-[#6b7280] hover:text-[#b6adf7] p-1" title="Editar"><IconEdit /></button>
+                          <button onClick={() => eliminarMeta(m.id)} className="text-[#4b5160] text-xs font-bold px-1" title="Eliminar">✕</button>
+                        </div>
+                      </div>
+                      <div className="w-full h-[14px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                        <div className="h-full transition-all duration-700" style={{ width: pct + '%', background: `linear-gradient(90deg, ${m.color}aa, ${m.color})`, boxShadow: `0 0 10px ${m.color}66` }}></div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => avanzarMeta(m.id, -1)} className="w-[38px] h-[34px] rounded-lg text-lg font-bold text-[#fb7185] active:scale-90 transition-all" style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)' }}>−</button>
+                        <button onClick={() => avanzarMeta(m.id, 1)} className="flex-1 h-[34px] rounded-lg text-sm font-bold text-[#231600] active:scale-95 transition-all" style={{ background: `linear-gradient(135deg, ${m.color}, ${m.color}cc)` }}>+ Avanzar</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {tab === 'premios' && (
               <div className={rejilla + " anim-fade"}>
                 <div className={card + " col-span-full p-[14px] flex items-center justify-between"}>
@@ -1423,7 +1382,7 @@
                   ))}
                 </div>
               )}
-              {['habitos', 'diarias', 'pendientes'].includes(tab) && (
+              {['habitos', 'pendientes'].includes(tab) && (
                 <div className="flex gap-[5px] mb-[10px]">
                   {DIF_ORDEN.map(k => {
                     const v = DIF[k]; const sel = nuevaDif === k;
@@ -1437,7 +1396,7 @@
                   })}
                 </div>
               )}
-              {tab === 'diarias' && (
+              {['habitos', 'pendientes'].includes(tab) && (
                 <div className="mb-[10px]">
                   <div className="flex items-center justify-between mb-[6px] px-1">
                     <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">¿Qué días?</span>
@@ -1470,6 +1429,15 @@
                     <button type="submit" className="w-12 rounded-lg text-[#231600] text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#f5c451,#f5972e)', boxShadow: '0 4px 14px rgba(245,150,46,0.4)' }}>{editandoRec ? '✓' : '+'}</button>
                   </div>
                 </form>
+              ) : tab === 'metas' ? (
+                <form onSubmit={agregarMeta} className="flex flex-col gap-2">
+                  {metaEdit && <div className="flex justify-between items-center text-[10px] font-bold text-[#a99ff5] px-1"><span>✏️ Editando meta</span><button type="button" onClick={() => { setMetaEdit(null); setNuevaMeta(''); setNuevoObjetivo(''); }} className="text-[#6b7280]">Cancelar</button></div>}
+                  <div className="flex gap-2">
+                    <input value={nuevaMeta} onChange={e => setNuevaMeta(e.target.value)} placeholder="Meta (ej. 📚 Leer 12 libros)" className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#a78bfa]" />
+                    <input value={nuevoObjetivo} onChange={e => setNuevoObjetivo(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" placeholder="Obj." className="mono w-[64px] bg-[#0c0c14] border border-white/10 rounded-lg px-[10px] py-3 text-[13px] text-[#a78bfa] text-center outline-none focus:border-[#a78bfa]" />
+                    <button type="submit" className="w-12 rounded-lg text-white text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#8b5cf6,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>{metaEdit ? '✓' : '+'}</button>
+                  </div>
+                </form>
               ) : tab !== 'notas' ? (
                 <form onSubmit={agregarItem} className="flex gap-2">
                   <input value={nuevoTexto} onChange={e => setNuevoTexto(e.target.value)} placeholder={`Nueva entrada en ${labelMap[tab] || tab}...`} className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#7c73f0]" />
@@ -1488,24 +1456,42 @@
             </div>
           )}
 
-          {/* ===== MODAL EDITAR DIARIA ===== */}
-          {diariaEdit && (
-            <div className="absolute inset-0 z-[70] flex items-end" style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(6px)' }} onClick={() => setDiariaEdit(null)}>
-              <div onClick={e => e.stopPropagation()} className="w-full p-6 border-t border-white/10 flex flex-col gap-4" style={{ background: '#12121a', borderRadius: '28px 28px 0 0', maxHeight: '86%', animation: 'slideUp .3s ease' }}>
+          {/* ===== MODAL EDITAR HÁBITO / TAREA ===== */}
+          {itemEdit && (
+            <div className="absolute inset-0 z-[70] flex items-end" style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(6px)' }} onClick={() => setItemEdit(null)}>
+              <div onClick={e => e.stopPropagation()} className="w-full p-6 border-t border-white/10 flex flex-col gap-4" style={{ background: '#12121a', borderRadius: '28px 28px 0 0', maxHeight: '88%', overflowY: 'auto', animation: 'slideUp .3s ease' }}>
                 <div className="flex justify-between items-center gap-3">
-                  <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0">Editar diaria</h2>
-                  <button onClick={() => setDiariaEdit(null)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
+                  <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0">Editar {itemEdit.kind === 'habito' ? 'hábito' : 'tarea'}</h2>
+                  <button onClick={() => setItemEdit(null)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
                 </div>
 
-                <input value={diariaEdit.texto} onChange={e => setDiariaEdit({ ...diariaEdit, texto: e.target.value })} placeholder="Nombre de la diaria" className="bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#7c73f0]" />
+                <input value={itemEdit.texto} onChange={e => setItemEdit({ ...itemEdit, texto: e.target.value })} placeholder="Nombre" className="bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#7c73f0]" />
+
+                {itemEdit.kind === 'habito' && (
+                  <div>
+                    <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">Tipo</span>
+                    <div className="flex gap-[6px] mt-2">
+                      {TIPOS.map(t => {
+                        const sel = itemEdit.tipo === t.id;
+                        return (
+                          <button key={t.id} onClick={() => setItemEdit({ ...itemEdit, tipo: t.id })} className="flex-1 py-[7px] rounded-lg text-[11px] font-bold transition-all" style={{
+                            background: sel ? 'rgba(124,115,240,0.18)' : 'rgba(255,255,255,0.04)',
+                            color: sel ? t.c : '#6b7280',
+                            border: sel ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                          }}>{t.label}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">Dificultad</span>
                   <div className="flex gap-[5px] mt-2">
                     {DIF_ORDEN.map(k => {
-                      const v = DIF[k]; const sel = diariaEdit.dificultad === k;
+                      const v = DIF[k]; const sel = itemEdit.dificultad === k;
                       return (
-                        <button key={k} onClick={() => setDiariaEdit({ ...diariaEdit, dificultad: k })} className="flex-1 py-[7px] rounded-lg text-[10px] font-bold transition-all" style={{
+                        <button key={k} onClick={() => setItemEdit({ ...itemEdit, dificultad: k })} className="flex-1 py-[7px] rounded-lg text-[10px] font-bold transition-all" style={{
                           background: sel ? 'rgba(124,115,240,0.16)' : 'rgba(255,255,255,0.04)',
                           color: sel ? v.c : '#6b7280',
                           border: sel ? '1px solid ' + v.c + '77' : '1px solid rgba(255,255,255,0.06)'
@@ -1519,14 +1505,14 @@
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">¿Qué días aparece?</span>
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => setDiariaEdit({ ...diariaEdit, dias: TODOS_DIAS.slice() })} className="text-[10px] font-bold text-[#b6adf7]">Todos</button>
-                      <button type="button" onClick={() => setDiariaEdit({ ...diariaEdit, dias: [1, 2, 3, 4, 5] })} className="text-[10px] font-bold text-[#8b93a3]">L-V</button>
-                      <button type="button" onClick={() => setDiariaEdit({ ...diariaEdit, dias: [6, 0] })} className="text-[10px] font-bold text-[#8b93a3]">Fin</button>
+                      <button type="button" onClick={() => setItemEdit({ ...itemEdit, dias: TODOS_DIAS.slice() })} className="text-[10px] font-bold text-[#b6adf7]">Todos</button>
+                      <button type="button" onClick={() => setItemEdit({ ...itemEdit, dias: [1, 2, 3, 4, 5] })} className="text-[10px] font-bold text-[#8b93a3]">L-V</button>
+                      <button type="button" onClick={() => setItemEdit({ ...itemEdit, dias: [6, 0] })} className="text-[10px] font-bold text-[#8b93a3]">Fin</button>
                     </div>
                   </div>
                   <div className="flex gap-[5px]">
                     {DIAS_SEM.map(w => {
-                      const sel = diariaEdit.dias.includes(w.n);
+                      const sel = itemEdit.dias.includes(w.n);
                       return (
                         <button key={w.n} type="button" onClick={() => toggleDiaEdit(w.n)} className="flex-1 py-[9px] rounded-lg text-[12px] font-bold transition-all" style={{
                           background: sel ? 'rgba(124,115,240,0.2)' : 'rgba(255,255,255,0.04)',
@@ -1536,10 +1522,109 @@
                       );
                     })}
                   </div>
-                  <p className="text-[10px] text-[#6b7280] mt-2 m-0">Aparecerá y contará sólo en los días marcados: <b className="text-[#8b93a3]">{etiquetaDias(diariaEdit.dias)}</b></p>
+                  <p className="text-[10px] text-[#6b7280] mt-2 m-0">Aparecerá y contará sólo en los días marcados: <b className="text-[#8b93a3]">{etiquetaDias(itemEdit.dias)}</b></p>
                 </div>
 
-                <button onClick={guardarDiariaEdit} className="w-full py-[11px] rounded-lg text-white text-[13px] font-bold" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>Guardar cambios</button>
+                <button onClick={guardarItemEdit} className="w-full py-[11px] rounded-lg text-white text-[13px] font-bold" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>Guardar cambios</button>
+              </div>
+            </div>
+          )}
+
+          {/* ===== MENÚ DE CONFIGURACIÓN (desde la foto de perfil) ===== */}
+          {menuAbierto && (
+            <div className="absolute inset-0 z-[75] flex items-end" style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(6px)' }} onClick={() => setMenuAbierto(false)}>
+              <div onClick={e => e.stopPropagation()} className="w-full p-6 border-t border-white/10 flex flex-col gap-4" style={{ background: '#12121a', borderRadius: '28px 28px 0 0', maxHeight: '90%', overflowY: 'auto', animation: 'slideUp .3s ease' }}>
+                <div className="flex justify-between items-center gap-3">
+                  <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0 flex items-center gap-2"><IconGear /> Configuración</h2>
+                  <button onClick={() => setMenuAbierto(false)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
+                </div>
+
+                <div className={card + " p-4 flex items-center justify-between gap-3"}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-[44px] h-[44px] rounded-[11px] overflow-hidden flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg,#231f3c,#12101f)', border: '1.5px solid rgba(124,115,240,0.55)' }}>
+                      {fotoPerfil ? <div className="w-full h-full" style={{ backgroundImage: `url(${fotoPerfil})`, backgroundSize: 'cover', backgroundPosition: 'center' }}></div> : <span className="mono text-lg font-extrabold text-[#cbc5f8]">M</span>}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-bold text-[#d3d6dd]">Nivel {nivel} · {rangoDe(nivel).label}</div>
+                      <div className="text-[10px] text-[#6b7280] truncate">{sync === 'conectado' ? syncUser : 'Sin sincronizar'}</div>
+                    </div>
+                  </div>
+                  <button onClick={() => fileRef.current && fileRef.current.click()} className="py-[9px] px-[12px] rounded-lg text-[11px] font-bold text-[#c4b5fd] active:scale-95 transition-all flex-shrink-0" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>Cambiar foto</button>
+                </div>
+
+                <div className={card + " p-4 flex flex-col gap-3"}>
+                  <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#7c73f0]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Balance del juego</span></div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-[3px]">
+                      <span className="text-[12px] font-bold text-[#d3d6dd]">Modo: <span style={{ color: '#b6adf7' }}>{(MODOS.find(m => m.id === modoBalance) || MODOS[1]).label}</span></span>
+                      <span className="text-[10px] text-[#6b7280]">Rango actual: <span style={{ color: rangoDe(nivel).c, fontWeight: 700 }}>{rangoDe(nivel).label}</span>{rangoSiguiente(nivel) ? ' · siguiente en nivel ' + rangoSiguiente(nivel).min : ' · rango máximo'}</span>
+                    </div>
+                    <button onClick={() => { setMenuAbierto(false); setAjustesAbierto(true); }} className="py-[9px] px-[14px] rounded-lg text-[12px] font-bold text-[#c4b5fd] active:scale-95 transition-all flex-shrink-0" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>Ajustar</button>
+                  </div>
+                </div>
+
+                <div className={card + " p-4 flex flex-col gap-3"}>
+                  <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#38bdf8]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Sincronización en la nube</span></div>
+                  {sync === 'conectado' ? (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-[8px] h-[8px] rounded-full bg-[#34d399]" style={{ boxShadow: '0 0 8px #34d399' }}></span>
+                        <span className="text-[12px] font-bold text-[#d3d6dd]">Sincronizado</span>
+                      </div>
+                      <span className="text-[11px] text-[#6b7280]">Tus datos se guardan y sincronizan solos entre tus dispositivos con esta cuenta: <b className="text-[#8b93a3] break-words">{syncUser}</b></span>
+                      <div className="flex gap-2 mt-1">
+                        <button onClick={forzarSubir} className="flex-1 py-[9px] rounded-lg text-[12px] font-bold text-[#231600]" style={{ background: 'linear-gradient(135deg,#34d399,#10b981)' }}>⬆ Subir mis datos</button>
+                        <button onClick={forzarBajar} className="flex-1 py-[9px] rounded-lg text-[12px] font-bold text-[#c4b5fd]" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>⬇ Bajar de la nube</button>
+                      </div>
+                      <p className="text-[10px] text-[#5b6270] leading-relaxed m-0">Úsalos si algo quedó desincronizado: en el dispositivo que tiene tus datos buenos toca <b className="text-[#34d399]">Subir</b>, y en el otro toca <b className="text-[#b6adf7]">Bajar</b>.</p>
+                      <button onClick={salirSync} className="py-[9px] rounded-lg text-[12px] font-bold text-[#9aa1ad]" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Cerrar sesión en este dispositivo</button>
+                    </div>
+                  ) : sync === 'conectando' ? (
+                    <span className="text-[12px] text-[#8b93a3] py-2">Conectando…</span>
+                  ) : sync === 'sinConfig' ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[11px] text-[#6b7280] leading-relaxed m-0">Conecta la app a la nube para que tu progreso se sincronice <b className="text-[#8b93a3]">solo</b> entre tu celular y tu compu. Necesitas crear un proyecto gratis de Firebase (una vez).</p>
+                      <button onClick={() => { setConfigTexto(''); setSyncError(''); setConfigAbierto(true); }} className="py-[10px] rounded-lg text-[12px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#38bdf8,#3b82f6)', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}>Configurar Firebase</button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-[11px] text-[#6b7280] leading-relaxed m-0">Entra con tu email y contraseña (los mismos en todos tus dispositivos). Si es tu primera vez, usa <b className="text-[#8b93a3]">Crear cuenta</b>.</p>
+                      <input value={syncEmail} onChange={e => setSyncEmail(e.target.value)} type="email" autoComplete="email" placeholder="tu@email.com" className="bg-[#0c0c14] border border-white/10 rounded-lg px-[12px] py-[10px] text-[13px] text-[#f2f3f6] outline-none focus:border-[#38bdf8]" />
+                      <input value={syncPass} onChange={e => setSyncPass(e.target.value)} type="password" autoComplete="current-password" placeholder="Contraseña (mín. 6)" className="bg-[#0c0c14] border border-white/10 rounded-lg px-[12px] py-[10px] text-[13px] text-[#f2f3f6] outline-none focus:border-[#38bdf8]" />
+                      <div className="flex gap-2">
+                        <button onClick={() => entrarSync(false)} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#38bdf8,#3b82f6)' }}>Entrar</button>
+                        <button onClick={() => entrarSync(true)} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad]" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Crear cuenta</button>
+                      </div>
+                      <button onClick={desconectarFirebase} className="text-[10px] text-[#5b6270] underline self-start">Cambiar configuración de Firebase</button>
+                    </div>
+                  )}
+                  {syncError && <span className="text-[11px] font-bold text-[#fb7185]">{syncError}</span>}
+                </div>
+
+                <div className={card + " p-4 flex flex-col gap-[14px]"}>
+                  <div>
+                    <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#34d399]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Pasar datos a otro dispositivo</span></div>
+                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Sin nube: en este dispositivo toca <b className="text-[#8b93a3]">Copiar datos</b>, envíatelos por WhatsApp o notas, y en el otro dispositivo (tu compu) abre la app y toca <b className="text-[#8b93a3]">Pegar datos</b>.</p>
+                    <div className="flex gap-2">
+                      <button onClick={abrirCopiar} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#231600] active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#34d399,#10b981)', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}>Copiar datos</button>
+                      <button onClick={() => { setTextoPegar(''); setTransfer('pegar'); }} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Pegar datos</button>
+                    </div>
+                  </div>
+                  <div className="border-t border-white/[0.06] pt-[14px]">
+                    <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#f5b23e]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Copia de seguridad (archivo)</span></div>
+                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Guarda un archivo con <b className="text-[#8b93a3]">todos</b> tus datos y restáuralo cuando quieras (si cambias de teléfono o limpias el navegador).</p>
+                    <div className="flex gap-2">
+                      <button onClick={exportarDatos} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#c4b5fd] active:scale-95 transition-all" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>Exportar copia</button>
+                      <button onClick={() => importRef.current && importRef.current.click()} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Restaurar</button>
+                      <input type="file" accept="application/json,.json" ref={importRef} onChange={importarDatos} className="hidden" />
+                    </div>
+                  </div>
+                  <div className="border-t border-white/[0.06] pt-[14px]">
+                    <div className="flex items-center gap-[6px] text-[#8b93a3] mb-[6px]"><span className="w-[7px] h-[7px] rounded-full bg-[#fb7185]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Reporte PDF</span></div>
+                    <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Un resumen legible de tu progreso, hábitos, tareas y notas — para leer, imprimir o compartir.</p>
+                    <button onClick={descargarPDF} className="w-full py-[10px] rounded-lg text-[12px] font-bold text-white active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.35)' }}>Descargar PDF</button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
