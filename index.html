@@ -272,6 +272,9 @@
       const [menuAbierto, setMenuAbierto] = useState(false); // menú de configuración (desde la foto de perfil)
       const [vistaLista, setVistaLista] = useState('hoy');   // 'hoy' | 'todas' en Hábitos/Tareas
       const [nuevaMeta, setNuevaMeta] = useState('');
+      const [nuevaMetaInicio, setNuevaMetaInicio] = useState(''); // fecha inicio (YYYY-MM-DD) opcional
+      const [nuevaMetaFin, setNuevaMetaFin] = useState('');       // fecha límite (YYYY-MM-DD) opcional
+      const [metaError, setMetaError] = useState('');
       const [metaEdit, setMetaEdit] = useState(null);
       const [tituloNota, setTituloNota] = useState('');
       const [contenidoNota, setContenidoNota] = useState('');
@@ -594,24 +597,49 @@
         const total = ligadas.length;
         return { total, hechas, pct: total ? Math.round((hechas / total) * 100) : 0 };
       };
+      // Temporalidad de una meta (maneja fechas nulas de metas antiguas de forma segura).
+      // Devuelve null si no hay ninguna fecha; si no, un rango legible y los días restantes.
+      const infoTiempoMeta = (m) => {
+        const inicio = (m && m.inicio) || null;
+        const fin = (m && m.fin) || null;
+        if (!inicio && !fin) return null;
+        const rango = inicio && fin ? etiquetaCorta(inicio) + ' – ' + etiquetaCorta(fin)
+          : fin ? 'Hasta ' + etiquetaCorta(fin) : 'Desde ' + etiquetaCorta(inicio);
+        let restante = null, color = '#5b6270';
+        if (fin) {
+          const n = Math.round((parseKey(fin) - parseKey(todayKey)) / 86400000);
+          if (n < 0) { restante = 'Venció hace ' + (-n) + (n === -1 ? ' día' : ' días'); color = '#fb7185'; }
+          else if (n === 0) { restante = 'Vence hoy'; color = '#f5b23e'; }
+          else if (n === 1) { restante = 'Falta 1 día'; color = '#f5b23e'; }
+          else { restante = 'Faltan ' + n + ' días'; color = n <= 3 ? '#f5b23e' : '#34d399'; }
+        }
+        return { rango, restante, color };
+      };
+      const resetMetaForm = () => { setNuevaMeta(''); setNuevaMetaInicio(''); setNuevaMetaFin(''); setMetaError(''); };
       const agregarMeta = (e) => {
         e.preventDefault();
         const t = nuevaMeta.trim();
         if (!t) return;
+        // Validación: la fecha límite no puede ser anterior a la de inicio.
+        if (nuevaMetaInicio && nuevaMetaFin && nuevaMetaFin < nuevaMetaInicio) {
+          setMetaError('La fecha límite no puede ser anterior a la de inicio.');
+          return;
+        }
+        const fechas = { inicio: nuevaMetaInicio || null, fin: nuevaMetaFin || null };
         if (metaEdit) {
-          setMetas(metas.map(m => m.id === metaEdit ? { ...m, texto: t } : m));
+          setMetas(metas.map(m => m.id === metaEdit ? { ...m, texto: t, ...fechas } : m));
           setMetaEdit(null);
         } else {
-          setMetas([...metas, { id: Date.now(), texto: t, color: COLORES_META[metas.length % COLORES_META.length] }]);
+          setMetas([...metas, { id: Date.now(), texto: t, color: COLORES_META[metas.length % COLORES_META.length], ...fechas }]);
         }
-        setNuevaMeta('');
+        resetMetaForm();
       };
-      const editarMeta = (m) => { setMetaEdit(m.id); setNuevaMeta(m.texto); };
+      const editarMeta = (m) => { setMetaEdit(m.id); setNuevaMeta(m.texto); setNuevaMetaInicio(m.inicio || ''); setNuevaMetaFin(m.fin || ''); setMetaError(''); };
       // Al borrar una meta, desvincula sus tareas (metaId = null); no borra las tareas.
       const eliminarMeta = (id) => {
         setMetas(metas.filter(m => m.id !== id));
         setPendientes(pendientes.map(p => p.metaId === id ? { ...p, metaId: null } : p));
-        if (metaEdit === id) { setMetaEdit(null); setNuevaMeta(''); }
+        if (metaEdit === id) { setMetaEdit(null); resetMetaForm(); }
       };
 
       // ---- Premios / recompensas ----
@@ -1085,7 +1113,7 @@
           )}
 
           {/* ===== MAIN ===== */}
-          <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : (tab === 'habitos' ? 'pb-56' : (tab === 'pendientes' ? 'pb-52' : (tab === 'notas' ? 'pb-40' : (tab === 'metas' ? 'pb-40' : 'pb-32')))))} style={{ WebkitOverflowScrolling: 'touch' }}>
+          <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : (tab === 'habitos' ? 'pb-56' : (tab === 'pendientes' ? 'pb-52' : (tab === 'notas' ? 'pb-40' : (tab === 'metas' ? 'pb-52' : 'pb-32')))))} style={{ WebkitOverflowScrolling: 'touch' }}>
 
             {tab === 'dashboard' && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-[14px] items-start anim-fade">
@@ -1322,6 +1350,7 @@
                   const st = statsMeta(m.id);
                   const pct = st.pct;
                   const done = st.total > 0 && st.hechas >= st.total;
+                  const t = infoTiempoMeta(m);
                   return (
                     <div key={m.id} className={card + " p-[14px] flex flex-col gap-[10px]"}>
                       <div className="flex items-start justify-between gap-2">
@@ -1342,6 +1371,15 @@
                       <div className="w-full h-[14px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
                         <div className="h-full transition-all duration-700" style={{ width: pct + '%', background: `linear-gradient(90deg, ${m.color}aa, ${m.color})`, boxShadow: pct > 0 ? `0 0 10px ${m.color}66` : 'none' }}></div>
                       </div>
+                      {t && (
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="flex items-center gap-[5px] text-[10px] font-bold text-[#8b93a3]">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+                            {t.rango}
+                          </span>
+                          {t.restante && <span className="text-[10px] font-extrabold px-[8px] py-[2px] rounded-full" style={{ color: t.color, background: t.color + '1f', border: '1px solid ' + t.color + '55' }}>{t.restante}</span>}
+                        </div>
+                      )}
                       {st.total === 0 && <p className="text-[10px] text-[#5b6270] m-0">Ve a <b className="text-[#8b93a3]">Tareas</b> y elige esta meta al crear o editar una tarea.</p>}
                     </div>
                   );
@@ -1471,11 +1509,22 @@
                 </form>
               ) : tab === 'metas' ? (
                 <form onSubmit={agregarMeta} className="flex flex-col gap-2">
-                  {metaEdit && <div className="flex justify-between items-center text-[10px] font-bold text-[#a99ff5] px-1"><span>✏️ Editando meta</span><button type="button" onClick={() => { setMetaEdit(null); setNuevaMeta(''); }} className="text-[#6b7280]">Cancelar</button></div>}
+                  {metaEdit && <div className="flex justify-between items-center text-[10px] font-bold text-[#a99ff5] px-1"><span>✏️ Editando meta</span><button type="button" onClick={() => { setMetaEdit(null); resetMetaForm(); }} className="text-[#6b7280]">Cancelar</button></div>}
                   <div className="flex gap-2">
                     <input value={nuevaMeta} onChange={e => setNuevaMeta(e.target.value)} placeholder="Meta (ej. 📚 Leer 12 libros)" className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#a78bfa]" />
                     <button type="submit" className="w-12 rounded-lg text-white text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#8b5cf6,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>{metaEdit ? '✓' : '+'}</button>
                   </div>
+                  <div className="flex gap-2 items-end">
+                    <label className="flex-1 flex flex-col gap-[3px]">
+                      <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3] px-1">Inicio (opcional)</span>
+                      <input type="date" value={nuevaMetaInicio} max={nuevaMetaFin || undefined} onChange={e => { setNuevaMetaInicio(e.target.value); setMetaError(''); }} className="bg-[#0c0c14] border border-white/10 rounded-lg px-[10px] py-[9px] text-[12px] text-[#f2f3f6] outline-none focus:border-[#a78bfa]" style={{ colorScheme: 'dark' }} />
+                    </label>
+                    <label className="flex-1 flex flex-col gap-[3px]">
+                      <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3] px-1">Fecha límite (opcional)</span>
+                      <input type="date" value={nuevaMetaFin} min={nuevaMetaInicio || undefined} onChange={e => { setNuevaMetaFin(e.target.value); setMetaError(''); }} className="bg-[#0c0c14] border border-white/10 rounded-lg px-[10px] py-[9px] text-[12px] text-[#f2f3f6] outline-none focus:border-[#a78bfa]" style={{ colorScheme: 'dark' }} />
+                    </label>
+                  </div>
+                  {metaError && <span className="text-[11px] font-bold text-[#fb7185] px-1">{metaError}</span>}
                 </form>
               ) : tab !== 'notas' ? (
                 <form onSubmit={agregarItem} className="flex gap-2">
