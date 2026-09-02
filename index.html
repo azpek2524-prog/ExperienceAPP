@@ -272,10 +272,12 @@
       const [menuAbierto, setMenuAbierto] = useState(false); // menú de configuración (desde la foto de perfil)
       const [vistaLista, setVistaLista] = useState('hoy');   // 'hoy' | 'todas' en Hábitos/Tareas
       const [nuevaMeta, setNuevaMeta] = useState('');
+      const [nuevaMetaObj, setNuevaMetaObj] = useState('');       // objetivo total (nº de aportaciones) opcional
       const [nuevaMetaInicio, setNuevaMetaInicio] = useState(''); // fecha inicio (YYYY-MM-DD) opcional
       const [nuevaMetaFin, setNuevaMetaFin] = useState('');       // fecha límite (YYYY-MM-DD) opcional
       const [metaError, setMetaError] = useState('');
       const [metaEdit, setMetaEdit] = useState(null);
+      const [formAbierto, setFormAbierto] = useState(false);      // formulario de creación (Hábitos/Tareas) colapsable
       const [tituloNota, setTituloNota] = useState('');
       const [contenidoNota, setContenidoNota] = useState('');
       const [editandoNota, setEditandoNota] = useState(null);
@@ -429,6 +431,8 @@
 
       // Al abrir, desliza la tira hasta hoy (extremo derecho)
       useEffect(() => { const el = stripRef.current; if (el) el.scrollLeft = el.scrollWidth; }, []);
+      // Al cambiar de pestaña, colapsa el formulario de creación (lista limpia)
+      useEffect(() => { setFormAbierto(false); }, [tab]);
 
       // ---- feedback flotante ----
       const addFloater = (text, color) => {
@@ -567,6 +571,7 @@
         if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
         if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey, metaId: nuevaMetaId }]);
         setNuevoTexto('');
+        setFormAbierto(false); // vuelve a comprimir el formulario tras guardar
       };
 
       const editarNota = (n) => { setEditandoNota(n.id); setTituloNota(n.titulo); setContenidoNota(n.contenido); setTab('notas'); };
@@ -591,12 +596,19 @@
       // Progreso de una meta = (tareas vinculadas completadas / total vinculadas) * 100.
       // Es derivado del estado de 'pendientes', así que al completar/deshacer/eliminar una
       // tarea la barra de la meta se recalcula sola en el siguiente render (sin recargar).
-      const statsMeta = (metaId) => {
-        const ligadas = pendientes.filter(p => p.metaId === metaId);
+      // Cada tarea vinculada completada suma +1 al acumulado de la meta. El denominador
+      // es el 'objetivo' total de la meta (si lo define); si no, el nº de tareas vinculadas.
+      // Así la barra se llena progresivamente en vez de saltar al 100% con una sola tarea.
+      const statsMeta = (m) => {
+        const ligadas = pendientes.filter(p => p.metaId === m.id);
         const hechas = ligadas.filter(p => p.completado).length;
-        const total = ligadas.length;
-        return { total, hechas, pct: total ? Math.round((hechas / total) * 100) : 0 };
+        const vinculadas = ligadas.length;
+        const objetivo = (m.objetivo && m.objetivo > 0) ? m.objetivo : vinculadas;
+        const base = objetivo > 0 ? Math.min(100, Math.round((hechas / objetivo) * 100)) : 0;
+        return { hechas, vinculadas, objetivo, manual: !!m.completadaManual, pct: m.completadaManual ? 100 : base };
       };
+      // Marcar/desmarcar una meta como completada manualmente (sobrescribe el % al 100%).
+      const completarMetaManual = (id, val) => setMetas(metas.map(m => m.id === id ? { ...m, completadaManual: val } : m));
       // Temporalidad de una meta (maneja fechas nulas de metas antiguas de forma segura).
       // Devuelve null si no hay ninguna fecha; si no, un rango legible y los días restantes.
       const infoTiempoMeta = (m) => {
@@ -615,7 +627,7 @@
         }
         return { rango, restante, color };
       };
-      const resetMetaForm = () => { setNuevaMeta(''); setNuevaMetaInicio(''); setNuevaMetaFin(''); setMetaError(''); };
+      const resetMetaForm = () => { setNuevaMeta(''); setNuevaMetaObj(''); setNuevaMetaInicio(''); setNuevaMetaFin(''); setMetaError(''); };
       const agregarMeta = (e) => {
         e.preventDefault();
         const t = nuevaMeta.trim();
@@ -625,16 +637,17 @@
           setMetaError('La fecha límite no puede ser anterior a la de inicio.');
           return;
         }
-        const fechas = { inicio: nuevaMetaInicio || null, fin: nuevaMetaFin || null };
+        const obj = parseInt(nuevaMetaObj, 10);
+        const campos = { texto: t, objetivo: obj > 0 ? obj : null, inicio: nuevaMetaInicio || null, fin: nuevaMetaFin || null };
         if (metaEdit) {
-          setMetas(metas.map(m => m.id === metaEdit ? { ...m, texto: t, ...fechas } : m));
+          setMetas(metas.map(m => m.id === metaEdit ? { ...m, ...campos } : m));
           setMetaEdit(null);
         } else {
-          setMetas([...metas, { id: Date.now(), texto: t, color: COLORES_META[metas.length % COLORES_META.length], ...fechas }]);
+          setMetas([...metas, { id: Date.now(), color: COLORES_META[metas.length % COLORES_META.length], completadaManual: false, ...campos }]);
         }
         resetMetaForm();
       };
-      const editarMeta = (m) => { setMetaEdit(m.id); setNuevaMeta(m.texto); setNuevaMetaInicio(m.inicio || ''); setNuevaMetaFin(m.fin || ''); setMetaError(''); };
+      const editarMeta = (m) => { setMetaEdit(m.id); setNuevaMeta(m.texto); setNuevaMetaObj(m.objetivo ? String(m.objetivo) : ''); setNuevaMetaInicio(m.inicio || ''); setNuevaMetaFin(m.fin || ''); setMetaError(''); };
       // Al borrar una meta, desvincula sus tareas (metaId = null); no borra las tareas.
       const eliminarMeta = (id) => {
         setMetas(metas.filter(m => m.id !== id));
@@ -940,7 +953,7 @@
 
         heading('Metas (' + metas.length + ')');
         if (!metas.length) line('- Sin metas.');
-        else metas.forEach(m => { const s = statsMeta(m.id); line('- ' + m.texto + '  (' + (s.total ? s.hechas + '/' + s.total + ' tareas · ' + s.pct + '%' : 'sin tareas vinculadas') + ')'); });
+        else metas.forEach(m => { const s = statsMeta(m); line('- ' + m.texto + '  (' + (s.manual ? 'completada · 100%' : (s.objetivo ? s.hechas + '/' + s.objetivo + ' · ' + s.pct + '%' : 'sin tareas vinculadas')) + ')'); });
 
         heading('Tareas pendientes (' + activas.length + ')');
         if (!activas.length) line('- Ninguna pendiente.');
@@ -977,7 +990,6 @@
       const card = "bg-[#101019] border border-[rgba(129,120,241,0.16)] rounded-[10px]";
       const rejilla = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-[10px] items-start"; // varias columnas en PC
       const showInput = (esHoy && (['habitos', 'pendientes'].includes(tab) || (tab === 'notas' && notasVista === 'dia'))) || tab === 'premios' || tab === 'metas';
-      const labelMap = { habitos: 'hábitos', pendientes: 'tareas' };
       const TIPOS = [
         { id: 'positivo', label: '+ Positivo', c: '#a78bfa' },
         { id: 'negativo', label: '− Negativo', c: '#fb7185' },
@@ -1113,7 +1125,7 @@
           )}
 
           {/* ===== MAIN ===== */}
-          <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : (tab === 'habitos' ? 'pb-56' : (tab === 'pendientes' ? 'pb-52' : (tab === 'notas' ? 'pb-40' : (tab === 'metas' ? 'pb-52' : 'pb-32')))))} style={{ WebkitOverflowScrolling: 'touch' }}>
+          <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : ((tab === 'habitos' || tab === 'pendientes') ? (formAbierto ? (tab === 'habitos' ? 'pb-56' : 'pb-52') : 'pb-24') : (tab === 'notas' ? 'pb-40' : (tab === 'metas' ? 'pb-60' : 'pb-32'))))} style={{ WebkitOverflowScrolling: 'touch' }}>
 
             {tab === 'dashboard' && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-[14px] items-start anim-fade">
@@ -1347,9 +1359,9 @@
                 </div>
                 {metas.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">Crea tu primera meta abajo.</div>}
                 {metas.map(m => {
-                  const st = statsMeta(m.id);
+                  const st = statsMeta(m);
                   const pct = st.pct;
-                  const done = st.total > 0 && st.hechas >= st.total;
+                  const done = pct >= 100;
                   const t = infoTiempoMeta(m);
                   return (
                     <div key={m.id} className={card + " p-[14px] flex flex-col gap-[10px]"}>
@@ -1360,11 +1372,11 @@
                             {done && <span className="text-[11px]">🏆</span>}
                           </div>
                           <span className="mono text-[11px] font-bold" style={{ color: m.color }}>
-                            {st.total === 0 ? 'Sin tareas vinculadas' : st.hechas + ' / ' + st.total + ' tareas · ' + pct + '%'}
+                            {st.manual ? '¡Completada! · 100%' : (st.vinculadas === 0 && !m.objetivo ? 'Sin tareas vinculadas' : st.hechas + ' / ' + st.objetivo + ' · ' + pct + '%')}
                           </span>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
-                          <button onClick={() => editarMeta(m)} className="text-[#6b7280] hover:text-[#b6adf7] p-1" title="Renombrar"><IconEdit /></button>
+                          <button onClick={() => editarMeta(m)} className="text-[#6b7280] hover:text-[#b6adf7] p-1" title="Editar"><IconEdit /></button>
                           <button onClick={() => eliminarMeta(m.id)} className="text-[#4b5160] text-xs font-bold px-1" title="Eliminar">✕</button>
                         </div>
                       </div>
@@ -1380,7 +1392,12 @@
                           {t.restante && <span className="text-[10px] font-extrabold px-[8px] py-[2px] rounded-full" style={{ color: t.color, background: t.color + '1f', border: '1px solid ' + t.color + '55' }}>{t.restante}</span>}
                         </div>
                       )}
-                      {st.total === 0 && <p className="text-[10px] text-[#5b6270] m-0">Ve a <b className="text-[#8b93a3]">Tareas</b> y elige esta meta al crear o editar una tarea.</p>}
+                      {st.vinculadas === 0 && !m.objetivo && <p className="text-[10px] text-[#5b6270] m-0">Define un objetivo abajo, o ve a <b className="text-[#8b93a3]">Tareas</b> y vincula tareas a esta meta.</p>}
+                      <button onClick={() => completarMetaManual(m.id, !st.manual)} className="mt-[2px] py-[8px] rounded-lg text-[11px] font-bold transition-all active:scale-95" style={st.manual
+                        ? { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#9aa1ad' }
+                        : { background: m.color + '22', border: '1px solid ' + m.color + '66', color: m.color }}>
+                        {st.manual ? '↩ Reabrir meta' : '✓ Marcar como completada'}
+                      </button>
                     </div>
                   );
                 })}
@@ -1427,7 +1444,7 @@
           {/* ===== INPUT (sólo en HOY) ===== */}
           {showInput && (
             <div className="absolute left-0 right-0 bottom-0 bg-[rgba(10,10,15,0.94)] backdrop-blur-md border-t border-white/[0.07] p-[14px] z-[25]">
-              {tab === 'habitos' && (
+              {tab === 'habitos' && formAbierto && (
                 <div className="flex gap-[6px] mb-[8px]">
                   {TIPOS.map(t => (
                     <button key={t.id} onClick={() => setNuevoTipo(t.id)} className="flex-1 py-[7px] rounded-lg text-[11px] font-bold transition-all" style={{
@@ -1438,7 +1455,7 @@
                   ))}
                 </div>
               )}
-              {['habitos', 'pendientes'].includes(tab) && (
+              {['habitos', 'pendientes'].includes(tab) && formAbierto && (
                 <div className="flex gap-[5px] mb-[10px]">
                   {DIF_ORDEN.map(k => {
                     const v = DIF[k]; const sel = nuevaDif === k;
@@ -1452,7 +1469,7 @@
                   })}
                 </div>
               )}
-              {['habitos', 'pendientes'].includes(tab) && (
+              {['habitos', 'pendientes'].includes(tab) && formAbierto && (
                 <div className="mb-[10px]">
                   <div className="flex items-center justify-between mb-[6px] px-1">
                     <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">¿Qué días?</span>
@@ -1476,7 +1493,7 @@
                   </div>
                 </div>
               )}
-              {tab === 'pendientes' && metas.length > 0 && (
+              {tab === 'pendientes' && formAbierto && metas.length > 0 && (
                 <div className="mb-[10px]">
                   <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3] px-1">Vincular a una meta (opcional)</span>
                   <div className="flex gap-[5px] mt-[6px] overflow-x-auto hide-scrollbar pb-[2px]">
@@ -1512,8 +1529,10 @@
                   {metaEdit && <div className="flex justify-between items-center text-[10px] font-bold text-[#a99ff5] px-1"><span>✏️ Editando meta</span><button type="button" onClick={() => { setMetaEdit(null); resetMetaForm(); }} className="text-[#6b7280]">Cancelar</button></div>}
                   <div className="flex gap-2">
                     <input value={nuevaMeta} onChange={e => setNuevaMeta(e.target.value)} placeholder="Meta (ej. 📚 Leer 12 libros)" className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#a78bfa]" />
+                    <input value={nuevaMetaObj} onChange={e => setNuevaMetaObj(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" placeholder="Meta nº" title="Objetivo total (cuántas tareas para llegar al 100%)" className="mono w-[70px] bg-[#0c0c14] border border-white/10 rounded-lg px-[8px] py-3 text-[13px] text-[#a78bfa] text-center outline-none focus:border-[#a78bfa]" />
                     <button type="submit" className="w-12 rounded-lg text-white text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#8b5cf6,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>{metaEdit ? '✓' : '+'}</button>
                   </div>
+                  <span className="text-[10px] text-[#5b6270] px-1">Objetivo total: cada tarea vinculada que completes suma <b className="text-[#8b93a3]">+1</b> hacia ese número. Si lo dejas vacío, se usa el nº de tareas vinculadas.</span>
                   <div className="flex gap-2 items-end">
                     <label className="flex-1 flex flex-col gap-[3px]">
                       <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3] px-1">Inicio (opcional)</span>
@@ -1527,10 +1546,17 @@
                   {metaError && <span className="text-[11px] font-bold text-[#fb7185] px-1">{metaError}</span>}
                 </form>
               ) : tab !== 'notas' ? (
-                <form onSubmit={agregarItem} className="flex gap-2">
-                  <input value={nuevoTexto} onChange={e => setNuevoTexto(e.target.value)} placeholder={`Nueva entrada en ${labelMap[tab] || tab}...`} className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#7c73f0]" />
-                  <button type="submit" className="w-12 rounded-lg text-white text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>+</button>
-                </form>
+                formAbierto ? (
+                  <form onSubmit={agregarItem} className="flex gap-2">
+                    <input autoFocus value={nuevoTexto} onChange={e => setNuevoTexto(e.target.value)} placeholder={tab === 'habitos' ? 'Nombre del hábito...' : 'Nombre de la tarea...'} className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#7c73f0]" />
+                    <button type="button" onClick={() => { setFormAbierto(false); setNuevoTexto(''); }} className="w-12 rounded-lg text-[#9aa1ad] text-lg font-bold flex-shrink-0" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }} title="Cancelar">✕</button>
+                    <button type="submit" className="w-12 rounded-lg text-white text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>+</button>
+                  </form>
+                ) : (
+                  <button onClick={() => setFormAbierto(true)} className="w-full py-[13px] rounded-xl text-white text-[14px] font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-all" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>
+                    <span className="text-xl leading-none">+</span> {tab === 'habitos' ? 'Nuevo hábito' : 'Nueva tarea'}
+                  </button>
+                )
               ) : (
                 <form onSubmit={agregarItem} className="flex flex-col gap-2">
                   {editandoNota && <div className="flex justify-between items-center text-[10px] font-bold text-[#a99ff5] px-1"><span>✏️ Editando nota</span><button type="button" onClick={() => { setEditandoNota(null); setTituloNota(''); setContenidoNota(''); }} className="text-[#6b7280]">Cancelar</button></div>}
