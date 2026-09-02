@@ -228,7 +228,6 @@
       // ---- Registros ligados a cada día ----
       const [xpPorDia, setXpPorDia] = useState(G.xpPorDia ?? {});          // { dia: xp ganada }
       const [tareasPorDia, setTareasPorDia] = useState(G.tareasPorDia ?? {}); // { dia: nº acciones }
-      const [progresoPorDia, setProgresoPorDia] = useState(G.progresoPorDia ?? {}); // { dia: progreso ponderado } (Tareas pesan mucho más que Hábitos)
       const [diasCompletados, setDiasCompletados] = useState(G.diasCompletados ?? {}); // { dia: true }
       const [habitLog, setHabitLog] = useState(G.habitLog ?? {});          // { habitId: { dia: conteo } }  (positivos)
       const [habitNegLog, setHabitNegLog] = useState(G.habitNegLog ?? {}); // { habitId: { dia: conteo } }  (negativos)
@@ -249,9 +248,10 @@
       const [pendientes, setPendientes] = useState(G.pendientes ?? []);
       const [notas, setNotas] = useState(G.notas ?? []);
       // Metas a largo plazo: progreso acumulado hacia un objetivo
+      // Metas: el progreso se calcula solo, a partir de las TAREAS vinculadas (metaId)
       const [metas, setMetas] = useState(G.metas ?? [
-        { id: 1, texto: 'Leer 12 libros', objetivo: 12, progreso: 3, color: '#a78bfa' },
-        { id: 2, texto: 'Ahorrar $10,000', objetivo: 10000, progreso: 2500, color: '#34d399' },
+        { id: 1, texto: 'Leer 12 libros', color: '#a78bfa' },
+        { id: 2, texto: 'Ponerme en forma', color: '#34d399' },
       ]);
       // Premios canjeables con oro (editables por el usuario)
       const [recompensas, setRecompensas] = useState(G.recompensas ?? [
@@ -267,11 +267,11 @@
       const [nuevoTipo, setNuevoTipo] = useState('ambos');
       const [nuevaDif, setNuevaDif] = useState('media');
       const [nuevaDias, setNuevaDias] = useState(TODOS_DIAS);
-      const [itemEdit, setItemEdit] = useState(null);   // edición genérica de hábito/tarea (texto, tipo, dificultad, días)
+      const [nuevaMetaId, setNuevaMetaId] = useState(null); // meta padre para una tarea nueva (o null)
+      const [itemEdit, setItemEdit] = useState(null);   // edición genérica de hábito/tarea (texto, tipo, dificultad, días, metaId)
       const [menuAbierto, setMenuAbierto] = useState(false); // menú de configuración (desde la foto de perfil)
       const [vistaLista, setVistaLista] = useState('hoy');   // 'hoy' | 'todas' en Hábitos/Tareas
       const [nuevaMeta, setNuevaMeta] = useState('');
-      const [nuevoObjetivo, setNuevoObjetivo] = useState('');
       const [metaEdit, setMetaEdit] = useState(null);
       const [tituloNota, setTituloNota] = useState('');
       const [contenidoNota, setContenidoNota] = useState('');
@@ -326,11 +326,11 @@
         let cambio;
         if (bump) { cambio = Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
         else { cambio = G._cambio || ''; try { const p = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); if (p._cambio) cambio = p._cambio; } catch (e) {} }
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, progresoPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas, _cambio: cambio };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas, _cambio: cambio };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
         if (bump) { dirty.current = true; programarPush(); }
         primerSave.current = false;
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, progresoPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas]);
 
       // ---- Al abrir: penalizar CADA día perdido (sin actividad) desde la última vez.
       //      La penalización se acumula y, si la vida se acaba, BAJAS DE NIVEL. ----
@@ -373,6 +373,19 @@
       };
       const racha = calcRacha();
 
+      // Pesos del progreso de la gráfica: las TAREAS pesan más que los HÁBITOS
+      // (Hábitos ≈20% del peso, Tareas ≈80%), pero un hábito completado SIEMPRE suma.
+      const PESO_HABITO = 5;
+      const PESO_TAREA = 20;
+      // Progreso ponderado de un día concreto. Se calcula SIEMPRE desde el historial
+      // guardado (habitLog + tareas completadas ese día), así los días pasados nunca
+      // se borran ni se sobreescriben: cada día refleja lo que se registró en su momento.
+      const progresoDeDia = (key) => {
+        const habitosDia = Object.values(habitLog).reduce((s, o) => s + (o[key] || 0), 0);
+        const tareasDia = pendientes.reduce((s, p) => s + (p.completado && p.completadoFecha === key ? 1 : 0), 0);
+        return Math.min(100, habitosDia * PESO_HABITO + tareasDia * PESO_TAREA);
+      };
+
       // ---- Últimos 7 días (tira del encabezado + gráfica) ----
       const ultimos7 = () => {
         const r = [];
@@ -382,7 +395,7 @@
           r.push({
             id: key, numero: d.getDate(), nombre: NOMBRES_DIA[d.getDay()],
             completado: !!diasCompletados[key], isToday: i === 0, isSel: key === selDia,
-            actividad: Math.min(100, progresoPorDia[key] || 0), // progreso ponderado (tareas >> hábitos)
+            actividad: progresoDeDia(key), // ponderado y derivado del historial (tareas >> hábitos)
           });
         }
         return r;
@@ -439,8 +452,7 @@
         const dia = n.dia || todayKey;
         if (n.xpDia) setXpPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.xpDia) }));
         if (n.tareas) setTareasPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.tareas) }));
-        if (n.prog) setProgresoPorDia(m => ({ ...m, [dia]: Math.max(0, (m[dia] || 0) + n.prog) }));
-        return { dTotal: total - totalAntes, dHp: h - hp, dOro: oroDesp - oro, dia, dXpDia: n.xpDia || 0, dTareas: n.tareas || 0, dProg: n.prog || 0 };
+        return { dTotal: total - totalAntes, dHp: h - hp, dOro: oroDesp - oro, dia, dXpDia: n.xpDia || 0, dTareas: n.tareas || 0 };
       };
       const revertir = (ef) => {
         if (!ef) return;
@@ -453,7 +465,6 @@
         const restar = (m, dia, cant) => { const v = Math.max(0, (m[dia] || 0) - cant); const c = { ...m }; if (v <= 0) delete c[dia]; else c[dia] = v; return c; };
         if (ef.dXpDia) setXpPorDia(m => restar(m, ef.dia, ef.dXpDia));
         if (ef.dTareas) setTareasPorDia(m => restar(m, ef.dia, ef.dTareas));
-        if (ef.dProg) setProgresoPorDia(m => restar(m, ef.dia, ef.dProg));
       };
       const pushEfecto = (key, ef) => setEfectos(e => ({ ...e, [key]: [...(e[key] || []), ef] }));
       const popEfecto = (key) => {
@@ -464,10 +475,6 @@
         return ef;
       };
 
-      // Pesos del progreso de la gráfica: las TAREAS pesan mucho más que los HÁBITOS,
-      // así que completar sólo hábitos avanza poco; el progreso real requiere tareas.
-      const PESO_HABITO = 4;
-      const PESO_TAREA = 30;
       // Valores de balance activos para un elemento según su dificultad
       const valDe = (it) => balance[(it && it.dificultad) || 'media'] || PRESETS.normal.media;
       const aplicarModo = (id) => { setModoBalance(id); if (id !== 'personalizado') setBalance(PRESETS[id]); };
@@ -485,7 +492,7 @@
         const h = habitos.find(x => x.id === id);
         const v = valDe(h);
         if (tipo === 'positivo') {
-          const ef = aplicar({ xp: v.xp, hp: v.cura, oro: Math.floor(v.xp / 2), dia: todayKey, xpDia: v.xp, tareas: 1, prog: PESO_HABITO });
+          const ef = aplicar({ xp: v.xp, hp: v.cura, oro: Math.floor(v.xp / 2), dia: todayKey, xpDia: v.xp, tareas: 1 });
           pushEfecto('hp:' + id, ef);
           addFloater('+' + v.xp + ' XP', '#b6a6ff');
           setHabitLog(l => { const cur = { ...(l[id] || {}) }; cur[todayKey] = (cur[todayKey] || 0) + 1; return { ...l, [id]: cur }; });
@@ -521,7 +528,7 @@
         const p = pendientes.find(x => x.id === id);
         if (!p || p.completado) return;
         const df = valDe(p);
-        const ef = aplicar({ xp: df.xp, hp: df.cura, oro: Math.floor(df.xp / 2), dia: todayKey, xpDia: df.xp, tareas: 1, prog: PESO_TAREA });
+        const ef = aplicar({ xp: df.xp, hp: df.cura, oro: Math.floor(df.xp / 2), dia: todayKey, xpDia: df.xp, tareas: 1 });
         pushEfecto('t:' + id, ef);
         addFloater('+' + df.xp + ' XP', '#b6a6ff');
         setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: true, completadoFecha: todayKey } : x));
@@ -555,7 +562,7 @@
         const dias = (nuevaDias && nuevaDias.length ? nuevaDias : TODOS_DIAS);
         const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif, creado: todayKey, dias };
         if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
-        if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey }]);
+        if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey, metaId: nuevaMetaId }]);
         setNuevoTexto('');
       };
 
@@ -564,7 +571,7 @@
       // ---- Programación por día de la semana + edición genérica (hábitos y tareas) ----
       const toggleNuevaDia = (n) => setNuevaDias(a => a.includes(n) ? a.filter(x => x !== n) : [...a, n]);
       // Editar cualquier hábito/tarea EN CUALQUIER MOMENTO (aunque esté programado para un día futuro)
-      const abrirEditar = (it, kind) => setItemEdit({ kind, id: it.id, texto: it.texto, tipo: it.tipo || 'ambos', dificultad: it.dificultad || 'media', dias: diasDe(it).slice() });
+      const abrirEditar = (it, kind) => setItemEdit({ kind, id: it.id, texto: it.texto, tipo: it.tipo || 'ambos', dificultad: it.dificultad || 'media', dias: diasDe(it).slice(), metaId: it.metaId ?? null });
       const toggleDiaEdit = (n) => setItemEdit(e => ({ ...e, dias: e.dias.includes(n) ? e.dias.filter(x => x !== n) : [...e.dias, n] }));
       const guardarItemEdit = () => {
         if (!itemEdit) return;
@@ -572,28 +579,40 @@
         const texto = (itemEdit.texto || '').trim();
         const campos = { dificultad: itemEdit.dificultad, dias };
         if (itemEdit.kind === 'habito') setHabitos(habitos.map(h => h.id === itemEdit.id ? { ...h, ...campos, tipo: itemEdit.tipo, texto: texto || h.texto } : h));
-        else setPendientes(pendientes.map(p => p.id === itemEdit.id ? { ...p, ...campos, texto: texto || p.texto } : p));
+        else setPendientes(pendientes.map(p => p.id === itemEdit.id ? { ...p, ...campos, metaId: itemEdit.metaId ?? null, texto: texto || p.texto } : p));
         setItemEdit(null);
       };
 
-      // ---- Metas a largo plazo (progreso acumulado) ----
+      // ---- Metas a largo plazo (progreso AUTOMÁTICO según tareas vinculadas) ----
       const COLORES_META = ['#a78bfa', '#34d399', '#38bdf8', '#f5b23e', '#fb7185', '#f472b6'];
+      // Progreso de una meta = (tareas vinculadas completadas / total vinculadas) * 100.
+      // Es derivado del estado de 'pendientes', así que al completar/deshacer/eliminar una
+      // tarea la barra de la meta se recalcula sola en el siguiente render (sin recargar).
+      const statsMeta = (metaId) => {
+        const ligadas = pendientes.filter(p => p.metaId === metaId);
+        const hechas = ligadas.filter(p => p.completado).length;
+        const total = ligadas.length;
+        return { total, hechas, pct: total ? Math.round((hechas / total) * 100) : 0 };
+      };
       const agregarMeta = (e) => {
         e.preventDefault();
         const t = nuevaMeta.trim();
-        const obj = Math.max(1, parseInt(nuevoObjetivo, 10) || 0);
-        if (!t || obj <= 0) return;
+        if (!t) return;
         if (metaEdit) {
-          setMetas(metas.map(m => m.id === metaEdit ? { ...m, texto: t, objetivo: obj } : m));
+          setMetas(metas.map(m => m.id === metaEdit ? { ...m, texto: t } : m));
           setMetaEdit(null);
         } else {
-          setMetas([...metas, { id: Date.now(), texto: t, objetivo: obj, progreso: 0, color: COLORES_META[metas.length % COLORES_META.length] }]);
+          setMetas([...metas, { id: Date.now(), texto: t, color: COLORES_META[metas.length % COLORES_META.length] }]);
         }
-        setNuevaMeta(''); setNuevoObjetivo('');
+        setNuevaMeta('');
       };
-      const editarMeta = (m) => { setMetaEdit(m.id); setNuevaMeta(m.texto); setNuevoObjetivo(String(m.objetivo)); };
-      const eliminarMeta = (id) => { setMetas(metas.filter(m => m.id !== id)); if (metaEdit === id) { setMetaEdit(null); setNuevaMeta(''); setNuevoObjetivo(''); } };
-      const avanzarMeta = (id, delta) => setMetas(metas.map(m => m.id === id ? { ...m, progreso: Math.max(0, Math.min(m.objetivo, (m.progreso || 0) + delta)) } : m));
+      const editarMeta = (m) => { setMetaEdit(m.id); setNuevaMeta(m.texto); };
+      // Al borrar una meta, desvincula sus tareas (metaId = null); no borra las tareas.
+      const eliminarMeta = (id) => {
+        setMetas(metas.filter(m => m.id !== id));
+        setPendientes(pendientes.map(p => p.metaId === id ? { ...p, metaId: null } : p));
+        if (metaEdit === id) { setMetaEdit(null); setNuevaMeta(''); }
+      };
 
       // ---- Premios / recompensas ----
       const guardarRecompensa = (e) => {
@@ -638,7 +657,7 @@
       };
 
       // ---- Respaldo: exportar / importar ----
-      const construirRespaldo = () => ({ nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, progresoPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas, _exportado: new Date().toISOString(), _version: 3 });
+      const construirRespaldo = () => ({ nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas, _exportado: new Date().toISOString(), _version: 3 });
       const esRespaldoValido = (data) => data && typeof data === 'object' && !Array.isArray(data) && (('habitos' in data) || ('notas' in data));
       const exportarDatos = () => {
         const blob = new Blob([JSON.stringify(construirRespaldo(), null, 2)], { type: 'application/json' });
@@ -714,7 +733,7 @@
         interactuo.current = false; dirty.current = false; // aplicar remoto no es interacción del usuario
         setNivel(d.nivel ?? 1); setHp(d.hp ?? 100); setXp(d.xp ?? 0); setOro(d.oro ?? 0);
         if (d.fotoPerfil !== undefined) setFotoPerfil(d.fotoPerfil);
-        setXpPorDia(d.xpPorDia || {}); setTareasPorDia(d.tareasPorDia || {}); setProgresoPorDia(d.progresoPorDia || {}); setDiasCompletados(d.diasCompletados || {});
+        setXpPorDia(d.xpPorDia || {}); setTareasPorDia(d.tareasPorDia || {}); setDiasCompletados(d.diasCompletados || {});
         setHabitLog(d.habitLog || {}); setHabitNegLog(d.habitNegLog || {}); setEfectos(d.efectos || {});
         if (d.ultimoDia) setUltimoDia(d.ultimoDia);
         setModoBalance(d.modoBalance || 'normal'); setBalance(d.balance || PRESETS.normal);
@@ -893,7 +912,7 @@
 
         heading('Metas (' + metas.length + ')');
         if (!metas.length) line('- Sin metas.');
-        else metas.forEach(m => line('- ' + m.texto + '  (' + (m.progreso || 0) + '/' + m.objetivo + ' · ' + Math.round((m.progreso || 0) / m.objetivo * 100) + '%)'));
+        else metas.forEach(m => { const s = statsMeta(m.id); line('- ' + m.texto + '  (' + (s.total ? s.hechas + '/' + s.total + ' tareas · ' + s.pct + '%' : 'sin tareas vinculadas') + ')'); });
 
         heading('Tareas pendientes (' + activas.length + ')');
         if (!activas.length) line('- Ninguna pendiente.');
@@ -1194,6 +1213,7 @@
                         <div className="flex items-center gap-2 flex-wrap">
                           <TagDif it={p} />
                           <span className="text-[9px] font-bold text-[#5b6270]">🗓 {etiquetaDias(diasDe(p))}</span>
+                          {(() => { const mt = metas.find(m => m.id === p.metaId); return mt ? <span className="text-[9px] font-bold px-[6px] py-[1px] rounded-full whitespace-nowrap" style={{ color: mt.color, background: mt.color + '1f', border: '1px solid ' + mt.color + '55' }}>🎯 {mt.texto}</span> : null; })()}
                         </div>
                       </div>
                     </div>
@@ -1295,14 +1315,13 @@
               <div className={rejilla + " anim-fade"}>
                 <div className="col-span-full">
                   <h2 className="text-[15px] font-extrabold text-[#f2f3f6] m-0 mb-1">Metas a largo plazo</h2>
-                  <p className="text-[11px] text-[#6b7280] m-0">Visualiza el progreso acumulado de tus objetivos grandes.</p>
+                  <p className="text-[11px] text-[#6b7280] m-0">El progreso avanza solo al completar las <b className="text-[#8b93a3]">tareas vinculadas</b> a cada meta.</p>
                 </div>
                 {metas.length === 0 && <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">Crea tu primera meta abajo.</div>}
                 {metas.map(m => {
-                  const obj = Math.max(1, m.objetivo || 1);
-                  const prog = Math.max(0, Math.min(obj, m.progreso || 0));
-                  const pct = Math.round((prog / obj) * 100);
-                  const done = prog >= obj;
+                  const st = statsMeta(m.id);
+                  const pct = st.pct;
+                  const done = st.total > 0 && st.hechas >= st.total;
                   return (
                     <div key={m.id} className={card + " p-[14px] flex flex-col gap-[10px]"}>
                       <div className="flex items-start justify-between gap-2">
@@ -1311,20 +1330,19 @@
                             <span className="text-sm font-bold text-[#e7e9ee] break-words">{m.texto}</span>
                             {done && <span className="text-[11px]">🏆</span>}
                           </div>
-                          <span className="mono text-[11px] font-bold" style={{ color: m.color }}>{prog} / {obj} · {pct}%</span>
+                          <span className="mono text-[11px] font-bold" style={{ color: m.color }}>
+                            {st.total === 0 ? 'Sin tareas vinculadas' : st.hechas + ' / ' + st.total + ' tareas · ' + pct + '%'}
+                          </span>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
-                          <button onClick={() => editarMeta(m)} className="text-[#6b7280] hover:text-[#b6adf7] p-1" title="Editar"><IconEdit /></button>
+                          <button onClick={() => editarMeta(m)} className="text-[#6b7280] hover:text-[#b6adf7] p-1" title="Renombrar"><IconEdit /></button>
                           <button onClick={() => eliminarMeta(m.id)} className="text-[#4b5160] text-xs font-bold px-1" title="Eliminar">✕</button>
                         </div>
                       </div>
                       <div className="w-full h-[14px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-                        <div className="h-full transition-all duration-700" style={{ width: pct + '%', background: `linear-gradient(90deg, ${m.color}aa, ${m.color})`, boxShadow: `0 0 10px ${m.color}66` }}></div>
+                        <div className="h-full transition-all duration-700" style={{ width: pct + '%', background: `linear-gradient(90deg, ${m.color}aa, ${m.color})`, boxShadow: pct > 0 ? `0 0 10px ${m.color}66` : 'none' }}></div>
                       </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => avanzarMeta(m.id, -1)} className="w-[38px] h-[34px] rounded-lg text-lg font-bold text-[#fb7185] active:scale-90 transition-all" style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)' }}>−</button>
-                        <button onClick={() => avanzarMeta(m.id, 1)} className="flex-1 h-[34px] rounded-lg text-sm font-bold text-[#231600] active:scale-95 transition-all" style={{ background: `linear-gradient(135deg, ${m.color}, ${m.color}cc)` }}>+ Avanzar</button>
-                      </div>
+                      {st.total === 0 && <p className="text-[10px] text-[#5b6270] m-0">Ve a <b className="text-[#8b93a3]">Tareas</b> y elige esta meta al crear o editar una tarea.</p>}
                     </div>
                   );
                 })}
@@ -1420,6 +1438,28 @@
                   </div>
                 </div>
               )}
+              {tab === 'pendientes' && metas.length > 0 && (
+                <div className="mb-[10px]">
+                  <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3] px-1">Vincular a una meta (opcional)</span>
+                  <div className="flex gap-[5px] mt-[6px] overflow-x-auto hide-scrollbar pb-[2px]">
+                    <button type="button" onClick={() => setNuevaMetaId(null)} className="flex-shrink-0 py-[7px] px-[12px] rounded-lg text-[11px] font-bold transition-all" style={{
+                      background: nuevaMetaId == null ? 'rgba(124,115,240,0.16)' : 'rgba(255,255,255,0.04)',
+                      color: nuevaMetaId == null ? '#b6adf7' : '#6b7280',
+                      border: nuevaMetaId == null ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                    }}>Sin meta</button>
+                    {metas.map(m => {
+                      const sel = nuevaMetaId === m.id;
+                      return (
+                        <button key={m.id} type="button" onClick={() => setNuevaMetaId(m.id)} className="flex-shrink-0 py-[7px] px-[12px] rounded-lg text-[11px] font-bold transition-all whitespace-nowrap" style={{
+                          background: sel ? m.color + '26' : 'rgba(255,255,255,0.04)',
+                          color: sel ? m.color : '#6b7280',
+                          border: sel ? '1px solid ' + m.color + '99' : '1px solid rgba(255,255,255,0.06)'
+                        }}>{m.texto}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {tab === 'premios' ? (
                 <form onSubmit={guardarRecompensa} className="flex flex-col gap-2">
                   {editandoRec && <div className="flex justify-between items-center text-[10px] font-bold text-[#f5b23e] px-1"><span>✏️ Editando premio</span><button type="button" onClick={() => { setEditandoRec(null); setNuevaRecTexto(''); setNuevaRecCosto(''); }} className="text-[#6b7280]">Cancelar</button></div>}
@@ -1431,10 +1471,9 @@
                 </form>
               ) : tab === 'metas' ? (
                 <form onSubmit={agregarMeta} className="flex flex-col gap-2">
-                  {metaEdit && <div className="flex justify-between items-center text-[10px] font-bold text-[#a99ff5] px-1"><span>✏️ Editando meta</span><button type="button" onClick={() => { setMetaEdit(null); setNuevaMeta(''); setNuevoObjetivo(''); }} className="text-[#6b7280]">Cancelar</button></div>}
+                  {metaEdit && <div className="flex justify-between items-center text-[10px] font-bold text-[#a99ff5] px-1"><span>✏️ Editando meta</span><button type="button" onClick={() => { setMetaEdit(null); setNuevaMeta(''); }} className="text-[#6b7280]">Cancelar</button></div>}
                   <div className="flex gap-2">
                     <input value={nuevaMeta} onChange={e => setNuevaMeta(e.target.value)} placeholder="Meta (ej. 📚 Leer 12 libros)" className="flex-1 min-w-0 bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[13px] text-[#f2f3f6] outline-none focus:border-[#a78bfa]" />
-                    <input value={nuevoObjetivo} onChange={e => setNuevoObjetivo(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" placeholder="Obj." className="mono w-[64px] bg-[#0c0c14] border border-white/10 rounded-lg px-[10px] py-3 text-[13px] text-[#a78bfa] text-center outline-none focus:border-[#a78bfa]" />
                     <button type="submit" className="w-12 rounded-lg text-white text-2xl font-bold flex-shrink-0" style={{ background: 'linear-gradient(135deg,#8b5cf6,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>{metaEdit ? '✓' : '+'}</button>
                   </div>
                 </form>
@@ -1500,6 +1539,29 @@
                     })}
                   </div>
                 </div>
+
+                {itemEdit.kind === 'tarea' && metas.length > 0 && (
+                  <div>
+                    <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">Meta vinculada</span>
+                    <div className="flex gap-[5px] mt-2 overflow-x-auto hide-scrollbar pb-[2px]">
+                      <button onClick={() => setItemEdit({ ...itemEdit, metaId: null })} className="flex-shrink-0 py-[7px] px-[12px] rounded-lg text-[11px] font-bold transition-all" style={{
+                        background: itemEdit.metaId == null ? 'rgba(124,115,240,0.16)' : 'rgba(255,255,255,0.04)',
+                        color: itemEdit.metaId == null ? '#b6adf7' : '#6b7280',
+                        border: itemEdit.metaId == null ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                      }}>Sin meta</button>
+                      {metas.map(m => {
+                        const sel = itemEdit.metaId === m.id;
+                        return (
+                          <button key={m.id} onClick={() => setItemEdit({ ...itemEdit, metaId: m.id })} className="flex-shrink-0 py-[7px] px-[12px] rounded-lg text-[11px] font-bold transition-all whitespace-nowrap" style={{
+                            background: sel ? m.color + '26' : 'rgba(255,255,255,0.04)',
+                            color: sel ? m.color : '#6b7280',
+                            border: sel ? '1px solid ' + m.color + '99' : '1px solid rgba(255,255,255,0.06)'
+                          }}>{m.texto}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <div className="flex items-center justify-between mb-2">
