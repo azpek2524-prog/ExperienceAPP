@@ -216,6 +216,17 @@
       if (s.length === 2 && s.includes(0) && s.includes(6)) return 'Fin de semana';
       return DIAS_SEM.filter(w => s.includes(w.n)).map(w => w.label).join(' ');
     };
+    // ¿La tarea recurrente fue completada en el día 'key'? El completado se registra por
+    // fecha (completedDates), NO borra la tarea: reaparece en su próximo día programado.
+    const hechaEn = (p, key) => Array.isArray(p.completedDates) && p.completedDates.includes(key);
+    // Migra tareas del modelo viejo (completado/completadoFecha, de un solo uso) al nuevo
+    // registro por fechas, sin perder el historial ya marcado.
+    const migrarTareas = (arr) => (arr || []).map(p => {
+      if (Array.isArray(p.completedDates)) return p;
+      const cd = (p.completado && p.completadoFecha) ? [p.completadoFecha] : [];
+      const { completado, completadoFecha, ...resto } = p;
+      return { ...resto, completedDates: cd };
+    });
 
     function App() {
       // ---- Progresión del personaje (inicio coherente: todo bajo) ----
@@ -244,8 +255,9 @@
         { id: 2, texto: 'Comida rápida', tipo: 'negativo', dias: TODOS_DIAS },
         { id: 3, texto: 'Trote matutino', tipo: 'ambos', dias: TODOS_DIAS },
       ]);
-      // Tareas: fecha = día de creación, dias = días programados, completadoFecha = día en que se terminó
-      const [pendientes, setPendientes] = useState(G.pendientes ?? []);
+      // Tareas: fecha = día de creación, dias = días programados,
+      // completedDates = fechas en que se marcó completada (recurrente, no se borra)
+      const [pendientes, setPendientes] = useState(migrarTareas(G.pendientes ?? []));
       const [notas, setNotas] = useState(G.notas ?? []);
       // Metas a largo plazo: progreso acumulado hacia un objetivo
       // Metas: el progreso se calcula solo, a partir de las TAREAS vinculadas (metaId)
@@ -387,7 +399,7 @@
       // se borran ni se sobreescriben: cada día refleja lo que se registró en su momento.
       const progresoDeDia = (key) => {
         const habitosDia = Object.values(habitLog).reduce((s, o) => s + (o[key] || 0), 0);
-        const tareasDia = pendientes.reduce((s, p) => s + (p.completado && p.completadoFecha === key ? 1 : 0), 0);
+        const tareasDia = pendientes.reduce((s, p) => s + (hechaEn(p, key) ? 1 : 0), 0);
         return Math.min(100, habitosDia * PESO_HABITO + tareasDia * PESO_TAREA);
       };
 
@@ -416,7 +428,7 @@
         Object.values(habitLog).forEach(o => Object.keys(o).forEach(push));
         Object.values(habitNegLog).forEach(o => Object.keys(o).forEach(push));
         notas.forEach(n => push(n.fecha));
-        pendientes.forEach(p => { push(p.fecha); push(p.completadoFecha); });
+        pendientes.forEach(p => { push(p.fecha); (p.completedDates || []).forEach(push); });
         const hace30 = (() => { const d = new Date(); d.setDate(d.getDate() - 29); return dk(d); })();
         if (hace30 < min) min = hace30;
         const arr = []; let d = parseKey(min); let guard = 0;
@@ -530,24 +542,27 @@
         setHabitNegLog(l => bajarConteo(l, id));
       };
 
+      // Completar una tarea = registrar HOY en completedDates. NO borra la tarea: si es
+      // recurrente, sólo se oculta el resto del día y reaparece en su próximo día programado.
+      // Cada registro suma +1 acumulativo al progreso de la meta vinculada.
       const completarPendiente = (id) => {
         if (!esHoy) return;
         const p = pendientes.find(x => x.id === id);
-        if (!p || p.completado) return;
+        if (!p || hechaEn(p, todayKey)) return;
         const df = valDe(p);
         const ef = aplicar({ xp: df.xp, hp: df.cura, oro: Math.floor(df.xp / 2), dia: todayKey, xpDia: df.xp, tareas: 1 });
         pushEfecto('t:' + id, ef);
         addFloater('+' + df.xp + ' XP', '#b6a6ff');
-        setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: true, completadoFecha: todayKey } : x));
+        setPendientes(pendientes.map(x => x.id === id ? { ...x, completedDates: [...(x.completedDates || []), todayKey] } : x));
       };
 
-      // Corrige una tarea marcada por error: la devuelve a pendientes y revierte el efecto EXACTO
+      // Corrige una tarea marcada por error: quita HOY de completedDates y revierte el efecto EXACTO
       const deshacerPendiente = (id) => {
         if (!esHoy) return;
         const p = pendientes.find(x => x.id === id);
-        if (!p || !p.completado) return;
+        if (!p || !hechaEn(p, todayKey)) return;
         revertir(popEfecto('t:' + id) || efPos(p));
-        setPendientes(pendientes.map(x => x.id === id ? { ...x, completado: false, completadoFecha: null } : x));
+        setPendientes(pendientes.map(x => x.id === id ? { ...x, completedDates: (x.completedDates || []).filter(d => d !== todayKey) } : x));
       };
 
       // ---- Alta de elementos (se registran en HOY) ----
@@ -569,7 +584,7 @@
         const dias = (nuevaDias && nuevaDias.length ? nuevaDias : TODOS_DIAS);
         const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif, creado: todayKey, dias };
         if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
-        if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completado: false, fecha: todayKey, metaId: nuevaMetaId }]);
+        if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completedDates: [], fecha: todayKey, metaId: nuevaMetaId }]);
         setNuevoTexto('');
         setFormAbierto(false); // vuelve a comprimir el formulario tras guardar
       };
@@ -601,7 +616,8 @@
       // Así la barra se llena progresivamente en vez de saltar al 100% con una sola tarea.
       const statsMeta = (m) => {
         const ligadas = pendientes.filter(p => p.metaId === m.id);
-        const hechas = ligadas.filter(p => p.completado).length;
+        // Acumulativo: cada fecha completada de cada tarea vinculada suma +1.
+        const hechas = ligadas.reduce((s, p) => s + ((p.completedDates || []).length), 0);
         const vinculadas = ligadas.length;
         const objetivo = (m.objetivo && m.objetivo > 0) ? m.objetivo : vinculadas;
         const base = objetivo > 0 ? Math.min(100, Math.round((hechas / objetivo) * 100)) : 0;
@@ -778,7 +794,7 @@
         setHabitLog(d.habitLog || {}); setHabitNegLog(d.habitNegLog || {}); setEfectos(d.efectos || {});
         if (d.ultimoDia) setUltimoDia(d.ultimoDia);
         setModoBalance(d.modoBalance || 'normal'); setBalance(d.balance || PRESETS.normal);
-        setHabitos(d.habitos || []); setPendientes(d.pendientes || []);
+        setHabitos(d.habitos || []); setPendientes(migrarTareas(d.pendientes || []));
         setNotas(d.notas || []); setRecompensas(d.recompensas || []); setMetas(d.metas || []);
       };
       // Trae datos de la nube y los aplica en caliente (conservando la foto local)
@@ -938,8 +954,8 @@
         doc.text('Reporte · ' + fechaLarga, M, y);
 
         const sum = (obj) => Object.values(obj).reduce((a, b) => a + (Number(b) || 0), 0);
-        const activas = pendientes.filter(p => !p.completado);
-        const hechas = pendientes.filter(p => p.completado);
+        const activas = pendientes.filter(p => !hechaEn(p, todayKey));
+        const hechas = pendientes.filter(p => (p.completedDates || []).length > 0);
 
         heading('Personaje');
         line('Nivel ' + nivel + '   ·   Vida ' + hp + '/100   ·   Experiencia ' + xp + '/100', { bold: true });
@@ -961,7 +977,7 @@
 
         heading('Tareas completadas (' + hechas.length + ')');
         if (!hechas.length) line('- Ninguna todavia.');
-        else hechas.forEach(p => line('- ' + p.texto + (p.completadoFecha ? '  (' + etiquetaCorta(p.completadoFecha) + ')' : '')));
+        else hechas.forEach(p => { const cd = p.completedDates || []; const ultima = cd[cd.length - 1]; line('- ' + p.texto + '  (' + cd.length + '×' + (ultima ? ', última ' + etiquetaCorta(ultima) : '') + ')'); });
 
         heading('Premios (' + recompensas.length + ')');
         if (!recompensas.length) line('- Sin premios.');
@@ -1011,9 +1027,12 @@
       // Hábitos: "Hoy" = programados para el día visto; "Todas" = todos (para gestionar/editar futuros)
       const habitosTodas = habitos.filter(h => existe(h, selDia));
       const habitosDelDia = vistaLista === 'todas' ? habitosTodas : habitosTodas.filter(h => enDia(h, selDia));
-      const pendientesActivas = pendientes.filter(p => !p.completado);
-      const pendientesDelDia = vistaLista === 'todas' ? pendientesActivas : pendientesActivas.filter(p => existe(p, selDia) && enDia(p, selDia));
-      const archivoDia = pendientes.filter(p => p.completado && p.completadoFecha === selDia);
+      // Tareas por hacer en el día seleccionado (no marcadas ese día). Las recurrentes
+      // reaparecen cada día programado porque el completado se guarda por fecha.
+      const pendientesActivas = pendientes.filter(p => existe(p, selDia) && !hechaEn(p, selDia));
+      const pendientesDelDia = vistaLista === 'todas' ? pendientesActivas : pendientesActivas.filter(p => enDia(p, selDia));
+      // Tareas completadas EN el día seleccionado
+      const archivoDia = pendientes.filter(p => existe(p, selDia) && hechaEn(p, selDia));
       const xpDia = xpPorDia[selDia] || 0;
       const tareasDia = tareasPorDia[selDia] || 0;
       const TagDif = ({ it }) => { const d = difDe(it); return <span className="text-[9px] font-bold" style={{ color: d.c }}>● {d.label}</span>; };
