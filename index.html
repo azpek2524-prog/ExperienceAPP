@@ -341,6 +341,7 @@
       const [floaters, setFloaters] = useState([]);
       const fileRef = useRef(null);
       const importRef = useRef(null);
+      const mergeRef = useRef(null);
       const stripRef = useRef(null);
 
       const esHoy = selDia === todayKey;
@@ -762,6 +763,55 @@
           } catch (err) {
             alert('No se pudo importar: el archivo no es un respaldo válido de Life Track.');
           }
+        };
+        r.readAsText(f);
+        e.target.value = '';
+      };
+      // ---- FUSIÓN de respaldo: une un respaldo viejo con los datos ACTUALES sin perder
+      //      ninguno de los dos. Sirve para recuperar el historial (p.ej. las Diarias)
+      //      sin borrar los días recientes. En conflicto, gana el dato ACTUAL.
+      const fusionarConRespaldo = (bk) => {
+        let actual = {};
+        try { actual = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) {}
+        const mapU = (a, v) => ({ ...(v || {}), ...(a || {}) }); // { dia: valor }
+        const logU = (a, v) => { const r = {}; const ids = new Set([...Object.keys(v || {}), ...Object.keys(a || {})]); ids.forEach(id => { r[id] = { ...((v || {})[id] || {}), ...((a || {})[id] || {}) }; }); return r; }; // { id: { dia: v } }
+        const idU = (a, v) => { const m = new Map(); (v || []).forEach(x => m.set(String(x.id), x)); (a || []).forEach(x => m.set(String(x.id), x)); return [...m.values()]; };
+        const tareaU = (a, v) => {
+          const m = new Map();
+          migrarTareas(v || []).forEach(x => m.set(String(x.id), x));
+          migrarTareas(a || []).forEach(x => { const prev = m.get(String(x.id)); if (prev) { const f = Array.from(new Set([...(prev.completedDates || []), ...(x.completedDates || [])])); m.set(String(x.id), { ...prev, ...x, completedDates: f }); } else m.set(String(x.id), x); });
+          return [...m.values()];
+        };
+        const merged = {
+          ...bk, ...actual,
+          xpPorDia: mapU(actual.xpPorDia, bk.xpPorDia),
+          tareasPorDia: mapU(actual.tareasPorDia, bk.tareasPorDia),
+          diasCompletados: mapU(actual.diasCompletados, bk.diasCompletados),
+          habitLog: logU(actual.habitLog, bk.habitLog),
+          habitNegLog: logU(actual.habitNegLog, bk.habitNegLog),
+          diariaLog: logU(actual.diariaLog, bk.diariaLog),
+          diarias: idU(actual.diarias, bk.diarias),
+          habitos: idU(actual.habitos, bk.habitos),
+          notas: idU(actual.notas, bk.notas),
+          metas: idU(actual.metas, bk.metas),
+          recompensas: idU(actual.recompensas, bk.recompensas),
+          pendientes: tareaU(actual.pendientes, bk.pendientes),
+          _cambio: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+        };
+        localStorage.setItem(LS_KEY, JSON.stringify(merged));
+        location.reload();
+      };
+      const fusionarDatos = (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = ev => {
+          try {
+            const bk = JSON.parse(ev.target.result);
+            if (!esRespaldoValido(bk)) throw new Error('inválido');
+            if (!window.confirm('Se FUSIONARÁ este respaldo con tus datos actuales. Recupera el historial viejo SIN borrar lo que tienes ahora. ¿Continuar?')) return;
+            fusionarConRespaldo(bk);
+          } catch (err) { alert('No se pudo leer: el archivo no es un respaldo válido de Life Track.'); }
         };
         r.readAsText(f);
         e.target.value = '';
@@ -1845,8 +1895,13 @@
                     <p className="text-[11px] text-[#6b7280] leading-relaxed m-0 mb-[10px]">Guarda un archivo con <b className="text-[#8b93a3]">todos</b> tus datos y restáuralo cuando quieras (si cambias de teléfono o limpias el navegador).</p>
                     <div className="flex gap-2">
                       <button onClick={exportarDatos} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#c4b5fd] active:scale-95 transition-all" style={{ background: 'rgba(124,115,240,0.16)', border: '1px solid rgba(124,115,240,0.4)' }}>Exportar copia</button>
-                      <button onClick={() => importRef.current && importRef.current.click()} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Restaurar</button>
+                      <button onClick={() => importRef.current && importRef.current.click()} className="flex-1 py-[10px] rounded-lg text-[12px] font-bold text-[#9aa1ad] active:scale-95 transition-all" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>Restaurar (reemplaza)</button>
                       <input type="file" accept="application/json,.json" ref={importRef} onChange={importarDatos} className="hidden" />
+                    </div>
+                    <div className="mt-[10px] p-[10px] rounded-lg" style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)' }}>
+                      <p className="text-[11px] text-[#8b93a3] leading-relaxed m-0 mb-[8px]">¿Perdiste historial? Sube un respaldo <b className="text-[#6ee7b7]">anterior</b> y se <b className="text-[#6ee7b7]">fusiona</b> con tus datos actuales: recupera lo viejo <b className="text-[#8b93a3]">sin borrar</b> los días recientes.</p>
+                      <button onClick={() => mergeRef.current && mergeRef.current.click()} className="w-full py-[10px] rounded-lg text-[12px] font-bold text-[#231600] active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#34d399,#10b981)', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}>Fusionar respaldo (recuperar historial)</button>
+                      <input type="file" accept="application/json,.json" ref={mergeRef} onChange={fusionarDatos} className="hidden" />
                     </div>
                   </div>
                   <div className="border-t border-white/[0.06] pt-[14px]">
