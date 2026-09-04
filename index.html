@@ -1121,6 +1121,19 @@
       // Registro unificado de logros del día (tareas + diarias legadas), para mostrarlo igual
       // que antes en los días anteriores.
       const archivoDia = [...archivoTareasDia, ...archivoDiariasDia];
+      // Hábitos registrados ese día (positivos y recaídas), leídos de habitLog/habitNegLog.
+      // Estos datos SIEMPRE se conservaron, así que sirven para ver el registro de días pasados.
+      const archivoHabitosDia = (() => {
+        const ids = new Set();
+        Object.keys(habitLog).forEach(id => { if (habitLog[id] && habitLog[id][selDia]) ids.add(id); });
+        Object.keys(habitNegLog).forEach(id => { if (habitNegLog[id] && habitNegLog[id][selDia]) ids.add(id); });
+        return [...ids].map(id => {
+          const h = habitos.find(x => String(x.id) === String(id));
+          return { id: 'hab-' + id, texto: (h && h.texto) || 'Hábito', habito: true, pos: (habitLog[id] && habitLog[id][selDia]) || 0, neg: (habitNegLog[id] && habitNegLog[id][selDia]) || 0 };
+        });
+      })();
+      // Registro COMPLETO del día para la pestaña Archivo (tareas + diarias + hábitos).
+      const logrosDia = [...archivoDia, ...archivoHabitosDia];
       const xpDia = xpPorDia[selDia] || 0;
       const tareasDia = tareasPorDia[selDia] || 0;
       const TagDif = ({ it }) => { const d = difDe(it); return <span className="text-[9px] font-bold" style={{ color: d.c }}>● {d.label}</span>; };
@@ -1390,23 +1403,28 @@
 
             {tab === 'archivo' && (
               <div className={rejilla + " anim-fade"}>
-                {archivoDia.length === 0 && (
-                  <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{esHoy ? 'Tus victorias de hoy aparecerán aquí.' : 'Sin victorias registradas este día.'}</div>
+                {logrosDia.length === 0 && (
+                  <div className="col-span-full text-center py-11 text-[#5b6270] text-sm italic">{esHoy ? 'Tus victorias de hoy aparecerán aquí.' : 'Sin actividad registrada este día.'}</div>
                 )}
-                {archivoDia.map(p => (
-                  <div key={p.id} className="p-[14px] rounded-[10px] flex items-center justify-between gap-[10px] bg-[#0d0d14] border border-white/[0.05]" style={{ opacity: 0.85 }}>
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
-                      <span className="text-sm text-[#6b7280] line-through break-words">{p.texto}</span>
-                      {p.legado && <span className="text-[8px] font-bold text-[#5b6270] uppercase flex-shrink-0">diaria</span>}
+                {logrosDia.map(p => {
+                  const recaida = p.habito && p.neg > 0 && p.pos === 0; // hábito negativo (recaída)
+                  const veces = p.habito ? (p.pos || p.neg) : 0;
+                  const etiqueta = p.habito ? (recaida ? 'recaída' : 'hábito') : (p.legado ? 'diaria' : 'tarea');
+                  return (
+                    <div key={p.id} className="p-[14px] rounded-[10px] flex items-center justify-between gap-[10px] border border-white/[0.05]" style={{ opacity: 0.9, background: recaida ? '#1a1015' : '#0d0d14' }}>
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-[22px] h-[22px] rounded-full flex items-center justify-center flex-shrink-0" style={{ background: recaida ? 'rgba(244,63,94,0.16)' : 'rgba(16,185,129,0.16)', border: '1px solid ' + (recaida ? 'rgba(244,63,94,0.5)' : 'rgba(16,185,129,0.5)') }}>{recaida ? <span className="text-[12px]">⚠️</span> : <IconTick c="#34d399" />}</div>
+                        <span className="text-sm break-words" style={{ color: '#8b93a3', textDecoration: recaida ? 'none' : 'line-through' }}>{p.texto}</span>
+                        <span className="text-[8px] font-bold text-[#5b6270] uppercase flex-shrink-0">{etiqueta}{veces > 1 ? ' ×' + veces : ''}</span>
+                      </div>
+                      {esHoy && !p.legado && !p.habito && (
+                        <button onClick={() => deshacerPendiente(p.id)} className="flex items-center gap-[5px] text-[11px] font-bold text-[#fb7185] px-[10px] py-[6px] rounded-lg flex-shrink-0 active:scale-95 transition-all" style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)' }}>
+                          <IconUndo />Devolver
+                        </button>
+                      )}
                     </div>
-                    {esHoy && !p.legado && (
-                      <button onClick={() => deshacerPendiente(p.id)} className="flex items-center gap-[5px] text-[11px] font-bold text-[#fb7185] px-[10px] py-[6px] rounded-lg flex-shrink-0 active:scale-95 transition-all" style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)' }}>
-                        <IconUndo />Devolver
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
