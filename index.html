@@ -1364,10 +1364,12 @@
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button onClick={() => abrirEditar(p, 'tarea')} className="text-[#6b7280] hover:text-[#b6adf7] p-1" title="Editar"><IconEdit /></button>
-                      <button onClick={() => eliminarItem(p.id, 'pendientes')} className="text-[#4b5160] text-xs font-bold px-1" title="Eliminar">✕</button>
-                    </div>
+                    {(esHoy || vistaLista === 'todas') && (
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button onClick={() => abrirEditar(p, 'tarea')} className="text-[#6b7280] hover:text-[#b6adf7] p-1" title="Editar"><IconEdit /></button>
+                        <button onClick={() => eliminarItem(p.id, 'pendientes')} className="text-[#4b5160] text-xs font-bold px-1" title="Eliminar">✕</button>
+                      </div>
+                    )}
                   </div>
                 ))}
                 {archivoDia.length > 0 && (
