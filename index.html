@@ -258,6 +258,11 @@
       const [habitNegLog, setHabitNegLog] = useState(G.habitNegLog ?? {}); // { habitId: { dia: conteo } }  (negativos)
       const [efectos, setEfectos] = useState(G.efectos ?? {});            // { clave: [efecto,...] } efecto exacto de cada acción, para revertir idéntico
       const [ultimoDia, setUltimoDia] = useState(G.ultimoDia ?? todayKey); // última vez que se abrió (para penalizar diarias sin cumplir)
+      // ---- HISTORIAL LEGADO (módulo "Diarias", ya retirado) ----
+      // Se CONSERVA para no perder el registro de lo que se hizo cada día y para poder
+      // mostrarlo en días anteriores. diariaLog = { diariaId: { dia: true } }.
+      const [diarias, setDiarias] = useState(G.diarias ?? []);
+      const [diariaLog, setDiariaLog] = useState(G.diariaLog ?? {});
 
       // ---- Balance ajustable ----
       const [modoBalance, setModoBalance] = useState(G.modoBalance ?? 'normal');
@@ -358,11 +363,11 @@
         let cambio;
         if (bump) { cambio = Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
         else { cambio = G._cambio || ''; try { const p = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); if (p._cambio) cambio = p._cambio; } catch (e) {} }
-        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas, _cambio: cambio };
+        const data = { nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, metas, _cambio: cambio };
         try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {}
         if (bump) { dirty.current = true; programarPush(); }
         primerSave.current = false;
-      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas]);
+      }, [nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, metas]);
 
       // ---- Al abrir: penalizar CADA día perdido (sin actividad) desde la última vez.
       //      La penalización se acumula y, si la vida se acaba, BAJAS DE NIVEL. ----
@@ -415,7 +420,9 @@
       const progresoDeDia = (key) => {
         const habitosDia = Object.values(habitLog).reduce((s, o) => s + (o[key] || 0), 0);
         const tareasDia = pendientes.reduce((s, p) => s + (hechaEn(p, key) ? 1 : 0), 0);
-        return Math.min(100, habitosDia * PESO_HABITO + tareasDia * PESO_TAREA);
+        // Incluye el historial legado de diarias, para que los días pasados no pierdan volumen.
+        const diariasDia = Object.values(diariaLog).reduce((s, o) => s + (o[key] ? 1 : 0), 0);
+        return Math.min(100, habitosDia * PESO_HABITO + (tareasDia + diariasDia) * PESO_TAREA);
       };
 
       // ---- Últimos 7 días (tira del encabezado + gráfica) ----
@@ -444,6 +451,7 @@
         Object.values(habitNegLog).forEach(o => Object.keys(o).forEach(push));
         notas.forEach(n => push(n.fecha));
         pendientes.forEach(p => { push(p.fecha); (p.completedDates || []).forEach(push); });
+        Object.values(diariaLog).forEach(o => Object.keys(o).forEach(push)); // historial legado
         const hace30 = (() => { const d = new Date(); d.setDate(d.getDate() - 29); return dk(d); })();
         if (hace30 < min) min = hace30;
         const arr = []; let d = parseKey(min); let guard = 0;
@@ -731,7 +739,7 @@
       };
 
       // ---- Respaldo: exportar / importar ----
-      const construirRespaldo = () => ({ nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, efectos, ultimoDia, modoBalance, balance, habitos, pendientes, notas, recompensas, metas, _exportado: new Date().toISOString(), _version: 3 });
+      const construirRespaldo = () => ({ nivel, hp, xp, oro, fotoPerfil, xpPorDia, tareasPorDia, diasCompletados, habitLog, habitNegLog, diariaLog, efectos, ultimoDia, modoBalance, balance, habitos, diarias, pendientes, notas, recompensas, metas, _exportado: new Date().toISOString(), _version: 3 });
       const esRespaldoValido = (data) => data && typeof data === 'object' && !Array.isArray(data) && (('habitos' in data) || ('notas' in data));
       const exportarDatos = () => {
         const blob = new Blob([JSON.stringify(construirRespaldo(), null, 2)], { type: 'application/json' });
@@ -809,6 +817,7 @@
         if (d.fotoPerfil !== undefined) setFotoPerfil(d.fotoPerfil);
         setXpPorDia(d.xpPorDia || {}); setTareasPorDia(d.tareasPorDia || {}); setDiasCompletados(d.diasCompletados || {});
         setHabitLog(d.habitLog || {}); setHabitNegLog(d.habitNegLog || {}); setEfectos(d.efectos || {});
+        setDiariaLog(d.diariaLog || {}); setDiarias(d.diarias || []); // historial legado (Diarias)
         if (d.ultimoDia) setUltimoDia(d.ultimoDia);
         setModoBalance(d.modoBalance || 'normal'); setBalance(d.balance || PRESETS.normal);
         setHabitos(d.habitos || []); setPendientes(migrarTareas(d.pendientes || []));
@@ -1053,7 +1062,15 @@
       const pendientesDelDia = vistaLista === 'todas' ? pendientesTodas : pendientesActivas;
       // Completadas EN el día seleccionado. INMUTABLE: se lee del historial (completedDates),
       // incluso si la tarea fue archivada (soft delete) después.
-      const archivoDia = pendientes.filter(p => hechaEn(p, selDia));
+      const archivoTareasDia = pendientes.filter(p => hechaEn(p, selDia));
+      // Historial LEGADO: diarias completadas ese día según diariaLog. Se busca el nombre en
+      // 'diarias'; si la definición ya no existe, se muestra igualmente el registro.
+      const archivoDiariasDia = Object.keys(diariaLog)
+        .filter(did => diariaLog[did] && diariaLog[did][selDia])
+        .map(did => { const d = diarias.find(x => String(x.id) === String(did)); return { id: 'diaria-' + did, texto: (d && d.texto) || 'Diaria', legado: true }; });
+      // Registro unificado de logros del día (tareas + diarias legadas), para mostrarlo igual
+      // que antes en los días anteriores.
+      const archivoDia = [...archivoTareasDia, ...archivoDiariasDia];
       const xpDia = xpPorDia[selDia] || 0;
       const tareasDia = tareasPorDia[selDia] || 0;
       const TagDif = ({ it }) => { const d = difDe(it); return <span className="text-[9px] font-bold" style={{ color: d.c }}>● {d.label}</span>; };
@@ -1311,8 +1328,9 @@
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
                       <span className="text-sm text-[#6b7280] line-through break-words">{p.texto}</span>
+                      {p.legado && <span className="text-[8px] font-bold text-[#5b6270] uppercase flex-shrink-0">diaria</span>}
                     </div>
-                    {esHoy && (
+                    {esHoy && !p.legado && (
                       <button onClick={() => deshacerPendiente(p.id)} className="text-[#fb7185] opacity-60 active:scale-90 transition-all flex-shrink-0" title="Devolver"><IconUndo /></button>
                     )}
                   </div>
@@ -1330,8 +1348,9 @@
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="w-[22px] h-[22px] rounded-full bg-[rgba(16,185,129,0.16)] border border-[rgba(16,185,129,0.5)] flex items-center justify-center flex-shrink-0"><IconTick c="#34d399" /></div>
                       <span className="text-sm text-[#6b7280] line-through break-words">{p.texto}</span>
+                      {p.legado && <span className="text-[8px] font-bold text-[#5b6270] uppercase flex-shrink-0">diaria</span>}
                     </div>
-                    {esHoy && (
+                    {esHoy && !p.legado && (
                       <button onClick={() => deshacerPendiente(p.id)} className="flex items-center gap-[5px] text-[11px] font-bold text-[#fb7185] px-[10px] py-[6px] rounded-lg flex-shrink-0 active:scale-95 transition-all" style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)' }}>
                         <IconUndo />Devolver
                       </button>
