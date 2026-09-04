@@ -216,16 +216,30 @@
       if (s.length === 2 && s.includes(0) && s.includes(6)) return 'Fin de semana';
       return DIAS_SEM.filter(w => s.includes(w.n)).map(w => w.label).join(' ');
     };
-    // ¿La tarea recurrente fue completada en el día 'key'? El completado se registra por
-    // fecha (completedDates), NO borra la tarea: reaparece en su próximo día programado.
+    // ¿La tarea fue completada en el día 'key'? El completado se registra por fecha
+    // (completedDates) y es INMUTABLE: los días pasados se leen de aquí, sin importar si
+    // la tarea matriz está hoy archivada o modificada.
     const hechaEn = (p, key) => Array.isArray(p.completedDates) && p.completedDates.includes(key);
-    // Migra tareas del modelo viejo (completado/completadoFecha, de un solo uso) al nuevo
-    // registro por fechas, sin perder el historial ya marcado.
+    // ¿La tarea está PENDIENTE (activa) en el día 'key'? Base del filtro de "Hoy":
+    // no archivada, ya existente ese día, no completada ese día, y que corresponda a ese
+    // día (recurrente = coincide con el día de la semana; de un solo uso = hasta completarla).
+    const tareaActivaEn = (p, key) => {
+      if (p.isArchived) return false;
+      if (!existe(p, key)) return false;
+      if (hechaEn(p, key)) return false;
+      if (p.recurrente === false) return (p.completedDates || []).length === 0;
+      return enDia(p, key);
+    };
+    // Migra tareas de modelos viejos y corrige la regresión: las tareas anteriores a esta
+    // versión (sin 'recurrente') se tratan como de un solo uso, así las ya completadas dejan
+    // de inundar "Hoy". No se pierde nada: completedDates conserva el historial.
     const migrarTareas = (arr) => (arr || []).map(p => {
-      if (Array.isArray(p.completedDates)) return p;
-      const cd = (p.completado && p.completadoFecha) ? [p.completadoFecha] : [];
-      const { completado, completadoFecha, ...resto } = p;
-      return { ...resto, completedDates: cd };
+      const q = { ...p };
+      if (!Array.isArray(q.completedDates)) q.completedDates = (q.completado && q.completadoFecha) ? [q.completadoFecha] : [];
+      delete q.completado; delete q.completadoFecha;
+      if (q.recurrente === undefined) q.recurrente = false;
+      if (q.isArchived === undefined) q.isArchived = false;
+      return q;
     });
 
     function App() {
@@ -280,6 +294,7 @@
       const [nuevaDif, setNuevaDif] = useState('media');
       const [nuevaDias, setNuevaDias] = useState(TODOS_DIAS);
       const [nuevaMetaId, setNuevaMetaId] = useState(null); // meta padre para una tarea nueva (o null)
+      const [nuevaRecurrente, setNuevaRecurrente] = useState(true); // ¿la tarea nueva se repite en sus días?
       const [itemEdit, setItemEdit] = useState(null);   // edición genérica de hábito/tarea (texto, tipo, dificultad, días, metaId)
       const [menuAbierto, setMenuAbierto] = useState(false); // menú de configuración (desde la foto de perfil)
       const [vistaLista, setVistaLista] = useState('hoy');   // 'hoy' | 'todas' en Hábitos/Tareas
@@ -584,7 +599,7 @@
         const dias = (nuevaDias && nuevaDias.length ? nuevaDias : TODOS_DIAS);
         const base = { id: Date.now(), texto: nuevoTexto, dificultad: nuevaDif, creado: todayKey, dias };
         if (tab === 'habitos') setHabitos([...habitos, { ...base, tipo: nuevoTipo }]);
-        if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completedDates: [], fecha: todayKey, metaId: nuevaMetaId }]);
+        if (tab === 'pendientes') setPendientes([...pendientes, { ...base, completedDates: [], fecha: todayKey, metaId: nuevaMetaId, recurrente: nuevaRecurrente, isArchived: false }]);
         setNuevoTexto('');
         setFormAbierto(false); // vuelve a comprimir el formulario tras guardar
       };
@@ -594,7 +609,7 @@
       // ---- Programación por día de la semana + edición genérica (hábitos y tareas) ----
       const toggleNuevaDia = (n) => setNuevaDias(a => a.includes(n) ? a.filter(x => x !== n) : [...a, n]);
       // Editar cualquier hábito/tarea EN CUALQUIER MOMENTO (aunque esté programado para un día futuro)
-      const abrirEditar = (it, kind) => setItemEdit({ kind, id: it.id, texto: it.texto, tipo: it.tipo || 'ambos', dificultad: it.dificultad || 'media', dias: diasDe(it).slice(), metaId: it.metaId ?? null });
+      const abrirEditar = (it, kind) => setItemEdit({ kind, id: it.id, texto: it.texto, tipo: it.tipo || 'ambos', dificultad: it.dificultad || 'media', dias: diasDe(it).slice(), metaId: it.metaId ?? null, recurrente: it.recurrente !== false });
       const toggleDiaEdit = (n) => setItemEdit(e => ({ ...e, dias: e.dias.includes(n) ? e.dias.filter(x => x !== n) : [...e.dias, n] }));
       const guardarItemEdit = () => {
         if (!itemEdit) return;
@@ -602,7 +617,7 @@
         const texto = (itemEdit.texto || '').trim();
         const campos = { dificultad: itemEdit.dificultad, dias };
         if (itemEdit.kind === 'habito') setHabitos(habitos.map(h => h.id === itemEdit.id ? { ...h, ...campos, tipo: itemEdit.tipo, texto: texto || h.texto } : h));
-        else setPendientes(pendientes.map(p => p.id === itemEdit.id ? { ...p, ...campos, metaId: itemEdit.metaId ?? null, texto: texto || p.texto } : p));
+        else setPendientes(pendientes.map(p => p.id === itemEdit.id ? { ...p, ...campos, metaId: itemEdit.metaId ?? null, recurrente: itemEdit.recurrente !== false, texto: texto || p.texto } : p));
         setItemEdit(null);
       };
 
@@ -699,9 +714,11 @@
 
       // Eliminar en CUALQUIER momento (también ítems programados para días futuros)
       const eliminarItem = (id, lista) => {
-        // Hábitos: se archivan (con fecha de hoy) para conservar el pasado; si se creó hoy, se borra de verdad.
-        if (lista === 'habitos') setHabitos(habitos.map(i => i.id === id ? { ...i, archivado: todayKey } : i).filter(i => !(i.id === id && i.creado === todayKey)));
-        if (lista === 'pendientes') setPendientes(pendientes.filter(i => i.id !== id));
+        // Soft delete: NUNCA se borra de forma destructiva (protege el historial y los días
+        // pasados ya bloqueados). Se marca como archivada desde hoy; el pasado se conserva.
+        if (lista === 'habitos') setHabitos(habitos.map(i => i.id === id ? { ...i, archivado: todayKey } : i));
+        if (lista === 'pendientes') setPendientes(pendientes.map(i => i.id === id ? { ...i, isArchived: true } : i));
+        // Las notas no tienen historial en el calendario: se pueden borrar de verdad.
         if (lista === 'notas') { setNotas(notas.filter(i => i.id !== id)); if (editandoNota === id) { setEditandoNota(null); setTituloNota(''); setContenidoNota(''); } }
       };
 
@@ -1027,12 +1044,16 @@
       // Hábitos: "Hoy" = programados para el día visto; "Todas" = todos (para gestionar/editar futuros)
       const habitosTodas = habitos.filter(h => existe(h, selDia));
       const habitosDelDia = vistaLista === 'todas' ? habitosTodas : habitosTodas.filter(h => enDia(h, selDia));
-      // Tareas por hacer en el día seleccionado (no marcadas ese día). Las recurrentes
-      // reaparecen cada día programado porque el completado se guarda por fecha.
-      const pendientesActivas = pendientes.filter(p => existe(p, selDia) && !hechaEn(p, selDia));
-      const pendientesDelDia = vistaLista === 'todas' ? pendientesActivas : pendientesActivas.filter(p => enDia(p, selDia));
-      // Tareas completadas EN el día seleccionado
-      const archivoDia = pendientes.filter(p => existe(p, selDia) && hechaEn(p, selDia));
+      // "Hoy": sólo tareas que corresponden a este día (recurrente = coincide con el día de
+      // la semana; de un solo uso = hasta completarla), no archivadas y no hechas ese día.
+      const pendientesActivas = pendientes.filter(p => tareaActivaEn(p, selDia));
+      // "Todas": todas las tareas vigentes (no archivadas, no hechas ese día), ignorando el
+      // día de la semana, para poder gestionarlas/editarlas.
+      const pendientesTodas = pendientes.filter(p => !p.isArchived && existe(p, selDia) && !hechaEn(p, selDia) && (p.recurrente === false ? (p.completedDates || []).length === 0 : true));
+      const pendientesDelDia = vistaLista === 'todas' ? pendientesTodas : pendientesActivas;
+      // Completadas EN el día seleccionado. INMUTABLE: se lee del historial (completedDates),
+      // incluso si la tarea fue archivada (soft delete) después.
+      const archivoDia = pendientes.filter(p => hechaEn(p, selDia));
       const xpDia = xpPorDia[selDia] || 0;
       const tareasDia = tareasPorDia[selDia] || 0;
       const TagDif = ({ it }) => { const d = difDe(it); return <span className="text-[9px] font-bold" style={{ color: d.c }}>● {d.label}</span>; };
@@ -1144,7 +1165,7 @@
           )}
 
           {/* ===== MAIN ===== */}
-          <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : ((tab === 'habitos' || tab === 'pendientes') ? (formAbierto ? (tab === 'habitos' ? 'pb-56' : 'pb-52') : 'pb-24') : (tab === 'notas' ? 'pb-40' : (tab === 'metas' ? 'pb-60' : 'pb-32'))))} style={{ WebkitOverflowScrolling: 'touch' }}>
+          <main className={"flex-1 min-h-0 overflow-y-auto overscroll-contain hide-scrollbar p-4 " + (!showInput ? 'pb-6' : ((tab === 'habitos' || tab === 'pendientes') ? (formAbierto ? (tab === 'habitos' ? 'pb-56' : 'pb-64') : 'pb-24') : (tab === 'notas' ? 'pb-40' : (tab === 'metas' ? 'pb-60' : 'pb-32'))))} style={{ WebkitOverflowScrolling: 'touch' }}>
 
             {tab === 'dashboard' && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-[14px] items-start anim-fade">
@@ -1271,7 +1292,7 @@
                         <span className="text-sm font-medium text-[#d3d6dd] break-words">{p.texto}</span>
                         <div className="flex items-center gap-2 flex-wrap">
                           <TagDif it={p} />
-                          <span className="text-[9px] font-bold text-[#5b6270]">🗓 {etiquetaDias(diasDe(p))}</span>
+                          <span className="text-[9px] font-bold text-[#5b6270]">{p.recurrente === false ? '1️⃣ Una vez' : '🔁 ' + etiquetaDias(diasDe(p))}</span>
                           {(() => { const mt = metas.find(m => m.id === p.metaId); return mt ? <span className="text-[9px] font-bold px-[6px] py-[1px] rounded-full whitespace-nowrap" style={{ color: mt.color, background: mt.color + '1f', border: '1px solid ' + mt.color + '55' }}>🎯 {mt.texto}</span> : null; })()}
                         </div>
                       </div>
@@ -1488,7 +1509,21 @@
                   })}
                 </div>
               )}
-              {['habitos', 'pendientes'].includes(tab) && formAbierto && (
+              {tab === 'pendientes' && formAbierto && (
+                <div className="flex gap-[6px] mb-[10px]">
+                  {[{ v: true, label: '🔁 Se repite' }, { v: false, label: '1️⃣ Una sola vez' }].map(o => {
+                    const sel = nuevaRecurrente === o.v;
+                    return (
+                      <button key={String(o.v)} type="button" onClick={() => setNuevaRecurrente(o.v)} className="flex-1 py-[7px] rounded-lg text-[11px] font-bold transition-all" style={{
+                        background: sel ? 'rgba(124,115,240,0.18)' : 'rgba(255,255,255,0.04)',
+                        color: sel ? '#c4b5fd' : '#6b7280',
+                        border: sel ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                      }}>{o.label}</button>
+                    );
+                  })}
+                </div>
+              )}
+              {(tab === 'habitos' || (tab === 'pendientes' && nuevaRecurrente)) && formAbierto && (
                 <div className="mb-[10px]">
                   <div className="flex items-center justify-between mb-[6px] px-1">
                     <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">¿Qué días?</span>
@@ -1657,6 +1692,25 @@
                   </div>
                 )}
 
+                {itemEdit.kind === 'tarea' && (
+                  <div>
+                    <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">Repetición</span>
+                    <div className="flex gap-[6px] mt-2">
+                      {[{ v: true, label: '🔁 Se repite' }, { v: false, label: '1️⃣ Una sola vez' }].map(o => {
+                        const sel = (itemEdit.recurrente !== false) === o.v;
+                        return (
+                          <button key={String(o.v)} type="button" onClick={() => setItemEdit({ ...itemEdit, recurrente: o.v })} className="flex-1 py-[7px] rounded-lg text-[11px] font-bold transition-all" style={{
+                            background: sel ? 'rgba(124,115,240,0.18)' : 'rgba(255,255,255,0.04)',
+                            color: sel ? '#c4b5fd' : '#6b7280',
+                            border: sel ? '1px solid rgba(124,115,240,0.5)' : '1px solid rgba(255,255,255,0.06)'
+                          }}>{o.label}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {(itemEdit.kind === 'habito' || itemEdit.recurrente !== false) && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3]">¿Qué días aparece?</span>
@@ -1680,6 +1734,7 @@
                   </div>
                   <p className="text-[10px] text-[#6b7280] mt-2 m-0">Aparecerá y contará sólo en los días marcados: <b className="text-[#8b93a3]">{etiquetaDias(itemEdit.dias)}</b></p>
                 </div>
+                )}
 
                 <button onClick={guardarItemEdit} className="w-full py-[11px] rounded-lg text-white text-[13px] font-bold" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.4)' }}>Guardar cambios</button>
               </div>
