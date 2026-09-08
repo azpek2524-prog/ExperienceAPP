@@ -641,14 +641,29 @@
       const statsMeta = (m) => {
         const ligadas = pendientes.filter(p => p.metaId === m.id);
         // Acumulativo: cada fecha completada de cada tarea vinculada suma +1.
-        const hechas = ligadas.reduce((s, p) => s + ((p.completedDates || []).length), 0);
+        const auto = ligadas.reduce((s, p) => s + ((p.completedDates || []).length), 0);
         const vinculadas = ligadas.length;
         const objetivo = (m.objetivo && m.objetivo > 0) ? m.objetivo : vinculadas;
+        // 'ajuste' = corrección manual (+/-) que el usuario aplica para arreglar un conteo mal
+        // marcado sin tener que tocar días bloqueados. El progreso final = auto + ajuste.
+        const hechas = Math.max(0, auto + (m.ajuste || 0));
         const base = objetivo > 0 ? Math.min(100, Math.round((hechas / objetivo) * 100)) : 0;
-        return { hechas, vinculadas, objetivo, manual: !!m.completadaManual, pct: m.completadaManual ? 100 : base };
+        return { auto, hechas, vinculadas, objetivo, manual: !!m.completadaManual, pct: m.completadaManual ? 100 : base };
       };
       // Marcar/desmarcar una meta como completada manualmente (sobrescribe el % al 100%).
       const completarMetaManual = (id, val) => setMetas(metas.map(m => m.id === id ? { ...m, completadaManual: val } : m));
+      // Ajuste manual del progreso (+/-). Corrige el conteo sin tocar las tareas ni los días
+      // pasados. Se limita para que el progreso quede entre 0 y el objetivo.
+      const ajustarMeta = (id, delta) => setMetas(metas.map(m => {
+        if (m.id !== id) return m;
+        const ligadas = pendientes.filter(p => p.metaId === m.id);
+        const auto = ligadas.reduce((s, p) => s + ((p.completedDates || []).length), 0);
+        const objetivo = (m.objetivo && m.objetivo > 0) ? m.objetivo : ligadas.length;
+        const actual = Math.max(0, auto + (m.ajuste || 0));
+        const tope = objetivo > 0 ? objetivo : Number.MAX_SAFE_INTEGER;
+        const nuevo = Math.max(0, Math.min(tope, actual + delta));
+        return { ...m, ajuste: (m.ajuste || 0) + (nuevo - actual) };
+      }));
       // Temporalidad de una meta (maneja fechas nulas de metas antiguas de forma segura).
       // Devuelve null si no hay ninguna fecha; si no, un rango legible y los días restantes.
       const infoTiempoMeta = (m) => {
@@ -1504,6 +1519,14 @@
                         </div>
                       )}
                       {st.vinculadas === 0 && !m.objetivo && <p className="text-[10px] text-[#5b6270] m-0">Define un objetivo abajo, o ve a <b className="text-[#8b93a3]">Tareas</b> y vincula tareas a esta meta.</p>}
+                      <div className="flex items-center justify-between gap-2 mt-[2px]">
+                        <span className="text-[10px] font-bold text-[#5b6270]">Ajustar progreso</span>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => ajustarMeta(m.id, -1)} className="w-[30px] h-[30px] rounded-lg text-lg font-bold text-[#fb7185] active:scale-90 transition-all" style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)' }} title="Restar 1">−</button>
+                          <span className="mono text-[13px] font-extrabold min-w-[46px] text-center" style={{ color: m.color }}>{st.hechas}/{st.objetivo || '∞'}</span>
+                          <button onClick={() => ajustarMeta(m.id, 1)} className="w-[30px] h-[30px] rounded-lg text-lg font-bold active:scale-90 transition-all" style={{ background: m.color + '22', border: '1px solid ' + m.color + '66', color: m.color }} title="Sumar 1">+</button>
+                        </div>
+                      </div>
                       <button onClick={() => completarMetaManual(m.id, !st.manual)} className="mt-[2px] py-[8px] rounded-lg text-[11px] font-bold transition-all active:scale-95" style={st.manual
                         ? { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#9aa1ad' }
                         : { background: m.color + '22', border: '1px solid ' + m.color + '66', color: m.color }}>
