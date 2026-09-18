@@ -334,6 +334,11 @@
       const [syncUser, setSyncUser] = useState('');
       const [configAbierto, setConfigAbierto] = useState(false);
       const [configTexto, setConfigTexto] = useState('');
+      // ---- Recordatorios (evento de calendario con alarma) ----
+      const [recordAbierto, setRecordAbierto] = useState(false);
+      const [recTitulo, setRecTitulo] = useState('');
+      const [recFecha, setRecFecha] = useState(todayKey);
+      const [recHora, setRecHora] = useState('09:00');
       const fbRef = useRef({ app: null, auth: null, db: null, user: null, unsub: null });
       const pushTimer = useRef(null);
       const dirty = useRef(false);                                              // hay cambios locales sin subir
@@ -804,6 +809,34 @@
         a.href = url; a.download = 'lifetrack-respaldo-' + todayKey + '.json';
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+      // ---- Recordatorio por CALENDARIO ----
+      // Genera un evento .ics con alarma a la hora elegida. El teléfono (Calendario) avisa
+      // a la hora exacta, con la app cerrada y sin internet. Hora "flotante" = hora local.
+      const crearRecordatorio = () => {
+        const titulo = recTitulo.trim();
+        if (!titulo || !recFecha || !recHora) return;
+        const [y, m, d] = recFecha.split('-').map(Number);
+        const [hh, mm] = recHora.split(':').map(Number);
+        const dt = new Date(y, m - 1, d, hh, mm, 0);
+        if (isNaN(dt.getTime())) return;
+        const z = n => String(n).padStart(2, '0');
+        const fmt = x => x.getFullYear() + z(x.getMonth() + 1) + z(x.getDate()) + 'T' + z(x.getHours()) + z(x.getMinutes()) + '00';
+        const ini = fmt(dt), fin = fmt(new Date(dt.getTime() + 30 * 60000)), stamp = fmt(new Date());
+        const esc = s => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+        const ics = [
+          'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//LifeTrack//ES', 'CALSCALE:GREGORIAN',
+          'BEGIN:VEVENT', 'UID:lt-' + Date.now() + '@lifetrack', 'DTSTAMP:' + stamp,
+          'DTSTART:' + ini, 'DTEND:' + fin, 'SUMMARY:' + esc(titulo), 'DESCRIPTION:' + esc('Recordatorio de Life Track'),
+          'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + esc(titulo), 'TRIGGER;VALUE=DATE-TIME:' + ini, 'END:VALARM',
+          'END:VEVENT', 'END:VCALENDAR'
+        ].join('\r\n');
+        const a = document.createElement('a');
+        a.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
+        a.download = 'recordatorio.ics';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        addFloater('📅 Recordatorio creado', '#34d399');
+        setRecordAbierto(false); setRecTitulo('');
       };
       const importarDatos = (e) => {
         const f = e.target.files && e.target.files[0];
@@ -1893,6 +1926,12 @@
                 </div>
 
                 <div className={card + " p-4 flex flex-col gap-3"}>
+                  <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#34d399]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Recordatorios</span></div>
+                  <p className="text-[11px] text-[#6b7280] leading-relaxed m-0">Crea un recordatorio y tu teléfono te avisará a la hora exacta (se agrega a tu Calendario, funciona con la app cerrada).</p>
+                  <button onClick={() => { setRecTitulo(''); setRecFecha(todayKey); setRecHora('09:00'); setMenuAbierto(false); setRecordAbierto(true); }} className="w-full py-[10px] rounded-lg text-[12px] font-bold text-[#231600] active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#34d399,#10b981)', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}>🔔 Crear recordatorio</button>
+                </div>
+
+                <div className={card + " p-4 flex flex-col gap-3"}>
                   <div className="flex items-center gap-[6px] text-[#8b93a3]"><span className="w-[7px] h-[7px] rounded-full bg-[#7c73f0]"></span><span className="text-[9px] font-extrabold tracking-[0.05em] uppercase">Balance del juego</span></div>
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-[3px]">
@@ -1970,6 +2009,31 @@
                     <button onClick={descargarPDF} className="w-full py-[10px] rounded-lg text-[12px] font-bold text-white active:scale-95 transition-all" style={{ background: 'linear-gradient(135deg,#7c73f0,#a855f7)', boxShadow: '0 4px 14px rgba(124,115,240,0.35)' }}>Descargar PDF</button>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== MODAL RECORDATORIO (calendario) ===== */}
+          {recordAbierto && (
+            <div className="absolute inset-0 z-[75] flex items-end" style={{ background: 'rgba(6,6,10,0.82)', backdropFilter: 'blur(6px)' }} onClick={() => setRecordAbierto(false)}>
+              <div onClick={e => e.stopPropagation()} className="w-full p-6 border-t border-white/10 flex flex-col gap-4" style={{ background: '#12121a', borderRadius: '28px 28px 0 0', maxHeight: '90%', overflowY: 'auto', animation: 'slideUp .3s ease' }}>
+                <div className="flex justify-between items-center gap-3">
+                  <h2 className="text-lg font-extrabold text-[#f2f3f6] m-0">🔔 Nuevo recordatorio</h2>
+                  <button onClick={() => setRecordAbierto(false)} className="w-[34px] h-[34px] rounded-full bg-white/[0.07] text-[#8b93a3] text-sm flex-shrink-0">✕</button>
+                </div>
+                <input value={recTitulo} onChange={e => setRecTitulo(e.target.value)} placeholder="¿Qué quieres recordar?" autoFocus className="bg-[#0c0c14] border border-white/10 rounded-lg px-[14px] py-3 text-[15px] text-[#f2f3f6] outline-none focus:border-[#34d399]" />
+                <div className="flex gap-2">
+                  <label className="flex-1 flex flex-col gap-[3px]">
+                    <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3] px-1">Fecha</span>
+                    <input type="date" value={recFecha} min={todayKey} onChange={e => setRecFecha(e.target.value)} className="bg-[#0c0c14] border border-white/10 rounded-lg px-[10px] py-[10px] text-[13px] text-[#f2f3f6] outline-none focus:border-[#34d399]" style={{ colorScheme: 'dark' }} />
+                  </label>
+                  <label className="flex-1 flex flex-col gap-[3px]">
+                    <span className="text-[9px] font-extrabold tracking-[0.05em] uppercase text-[#8b93a3] px-1">Hora</span>
+                    <input type="time" value={recHora} onChange={e => setRecHora(e.target.value)} className="bg-[#0c0c14] border border-white/10 rounded-lg px-[10px] py-[10px] text-[13px] text-[#f2f3f6] outline-none focus:border-[#34d399]" style={{ colorScheme: 'dark' }} />
+                  </label>
+                </div>
+                <button onClick={crearRecordatorio} disabled={!recTitulo.trim()} className="w-full py-[12px] rounded-lg text-[13px] font-bold text-[#231600]" style={{ background: recTitulo.trim() ? 'linear-gradient(135deg,#34d399,#10b981)' : 'rgba(255,255,255,0.06)', opacity: recTitulo.trim() ? 1 : 0.5 }}>📅 Agregar al calendario</button>
+                <p className="text-[10px] text-[#5b6270] leading-relaxed m-0">Se abrirá tu app de Calendario para confirmar. Tu teléfono te avisará a esa hora, aunque Life Track esté cerrada. En iPhone, toca <b className="text-[#8b93a3]">Agregar</b> cuando aparezca.</p>
               </div>
             </div>
           )}
