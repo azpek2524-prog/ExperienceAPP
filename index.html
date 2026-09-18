@@ -664,6 +664,31 @@
         const nuevo = Math.max(0, Math.min(tope, actual + delta));
         return { ...m, ajuste: (m.ajuste || 0) + (nuevo - actual) };
       }));
+      // Recompensa por COMPLETAR una meta (llegar al 100%): da XP (para subir de nivel),
+      // vida y oro. Se otorga UNA sola vez (flag 'recompensada') y se revierte exacto si la
+      // meta se reabre o baja del 100%, para que no se pueda farmear repitiéndola.
+      const META_XP = 100, META_HP = 25, META_ORO = 50;
+      useEffect(() => {
+        for (const m of metas) {
+          const completa = statsMeta(m).pct >= 100;
+          if (completa === !!m.recompensada) continue; // ya sincronizado
+          if (!interactuo.current) { // al abrir la app: sólo sincroniza el flag, sin premiar
+            setMetas(ms => ms.map(x => x.id === m.id ? { ...x, recompensada: completa } : x));
+            return;
+          }
+          if (completa) {
+            const ef = aplicar({ xp: META_XP, hp: META_HP, oro: META_ORO, dia: todayKey, xpDia: META_XP, tareas: 1 });
+            pushEfecto('meta:' + m.id, ef);
+            addFloater('🏆 Meta completada +' + META_XP + ' XP', '#f5c451');
+            setMetas(ms => ms.map(x => x.id === m.id ? { ...x, recompensada: true } : x));
+          } else {
+            revertir(popEfecto('meta:' + m.id));
+            addFloater('Meta reabierta', '#8b93a3');
+            setMetas(ms => ms.map(x => x.id === m.id ? { ...x, recompensada: false } : x));
+          }
+          return; // un cambio por pasada (evita colisiones de estado)
+        }
+      }, [metas, pendientes]);
       // Temporalidad de una meta (maneja fechas nulas de metas antiguas de forma segura).
       // Devuelve null si no hay ninguna fecha; si no, un rango legible y los días restantes.
       const infoTiempoMeta = (m) => {
