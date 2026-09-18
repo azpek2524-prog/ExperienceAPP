@@ -277,7 +277,9 @@
       // Tareas: fecha = día de creación, dias = días programados,
       // completedDates = fechas en que se marcó completada (recurrente, no se borra)
       const [pendientes, setPendientes] = useState(migrarTareas(G.pendientes ?? []));
-      const [notas, setNotas] = useState(G.notas ?? []);
+      const [notas, setNotas] = useState(G.notas ?? [
+        { id: 1, titulo: '📝 ¿Para qué sirve este apartado?', contenido: 'Las Notas son tu espacio libre: úsalas como diario, para recordatorios, ideas, pensamientos, listas o cualquier cosa que quieras guardar día a día.\n\n• Toca "✍️ Escribir nota" para crear una nueva.\n• Toca una nota para leerla o editarla.\n• Puedes verlas por día o por mes.\n\nPuedes borrar esta nota de ejemplo cuando quieras. 🙂', fecha: todayKey },
+      ]);
       // Metas a largo plazo: progreso acumulado hacia un objetivo
       // Metas: el progreso se calcula solo, a partir de las TAREAS vinculadas (metaId)
       const [metas, setMetas] = useState(G.metas ?? [
