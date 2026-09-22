@@ -981,6 +981,23 @@
         if (dirty.current) { pushCloud(); return; }           // tengo cambios locales sin subir -> gana lo mío, lo subo
         aplicarRemoto(remoto);                                // versión nueva de otro dispositivo -> traer
       };
+      // Sube YA lo pendiente (al cerrar / mandar a segundo plano), sin esperar el debounce,
+      // para que el otro dispositivo lo vea aunque cierres esta app enseguida.
+      const flushCloud = () => {
+        const R = fbRef.current;
+        if (!R.db || !R.user) return;
+        if (pushTimer.current) { clearTimeout(pushTimer.current); pushTimer.current = null; }
+        if (dirty.current) pushCloud();
+      };
+      // Trae la ÚLTIMA versión del SERVIDOR (al abrir / volver al frente / reconectar) y la
+      // aplica si es más nueva. Con esto, abrir un dispositivo muestra lo hecho en el otro
+      // SIN necesidad de tener ambos abiertos a la vez.
+      const repullCloud = () => {
+        const R = fbRef.current;
+        if (!R.db || !R.user) return;
+        R.db.collection('usuarios').doc(R.user.uid).get({ source: 'server' })
+          .then((snap) => alRecibirDoc(snap)).catch(() => {});
+      };
       // Control manual (por si el orden de conexión dejó datos desincronizados)
       const forzarSubir = () => {
         const R = fbRef.current;
@@ -1023,14 +1040,19 @@
               setSyncUser(user.email || 'tu cuenta');
               setSync('conectado');
               R.unsub = R.db.collection('usuarios').doc(user.uid).onSnapshot(alRecibirDoc, () => {});
+              repullCloud(); // al conectar, jala del servidor la última versión de una vez
             } else {
               R.user = null; setSyncUser(''); setSync('desconectado');
             }
           });
-          // Al recuperar internet, sube lo que haya quedado pendiente offline
+          // Eventos que mantienen la sincronía sin tener ambas apps abiertas a la vez:
+          // - al volver al frente / reconectar: JALAR lo último del servidor.
+          // - al cerrar / mandar a segundo plano: SUBIR lo pendiente enseguida.
           if (!R.onlineListo) {
             R.onlineListo = true;
-            window.addEventListener('online', () => { if (dirty.current) pushCloud(); });
+            window.addEventListener('online', () => { repullCloud(); flushCloud(); });
+            window.addEventListener('pagehide', flushCloud);
+            document.addEventListener('visibilitychange', () => { if (document.hidden) flushCloud(); else repullCloud(); });
           }
         } catch (err) {
           setSync('desconectado'); setSyncError('No se pudo conectar con Firebase. Revisa tu conexión.');
@@ -2217,6 +2239,14 @@
       navigator.serviceWorker.addEventListener('controllerchange', function () {
         try { if (sessionStorage.getItem('sw_recargado')) return; sessionStorage.setItem('sw_recargado', '1'); } catch (e) {}
         window.location.reload();
+      });
+      // Cuando el SW detecta que hay una versión NUEVA en la red (distinta al caché),
+      // recarga UNA sola vez por sesión para mostrarla al instante (no "una carga atrás").
+      navigator.serviceWorker.addEventListener('message', function (e) {
+        if (e.data && e.data.type === 'nueva-version') {
+          try { if (sessionStorage.getItem('sw_recargado')) return; sessionStorage.setItem('sw_recargado', '1'); } catch (x) {}
+          window.location.reload();
+        }
       });
       window.addEventListener('load', function () {
         navigator.serviceWorker.register('./sw.js').then(function (reg) {

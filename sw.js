@@ -59,9 +59,21 @@ self.addEventListener('fetch', (event) => {
   if (esNavegacion) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
-      const enCache = (await caches.match(req)) || (await cache.match('./index.html')) || (await cache.match('./'));
-      const red = fetch(req).then((res) => {
-        if (res && res.ok) cache.put('./index.html', res.clone()).catch(() => {});
+      const enCache = (await cache.match('./index.html')) || (await cache.match('./'));
+      const red = fetch(req).then(async (res) => {
+        if (res && res.ok) {
+          try {
+            const nuevo = await res.clone().text();
+            const viejo = enCache ? await enCache.clone().text() : null;
+            await cache.put('./index.html', res.clone());
+            // Si la versión de la red es distinta a la cacheada, avisa a las pestañas
+            // para que recarguen UNA vez y muestren la versión nueva al instante.
+            if (viejo !== null && viejo !== nuevo) {
+              const cls = await self.clients.matchAll({ type: 'window' });
+              cls.forEach((c) => c.postMessage({ type: 'nueva-version' }));
+            }
+          } catch (e) { cache.put('./index.html', res.clone()).catch(() => {}); }
+        }
         return res;
       }).catch(() => null);
       const limite = new Promise((r) => setTimeout(() => r(null), TIMEOUT_MS));
